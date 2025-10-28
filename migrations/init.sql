@@ -1,6 +1,9 @@
 -- init.sql - initial setup
+
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
 CREATE TABLE users (
-    id SERIAL PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name VARCHAR(100) NOT NULL,
     email VARCHAR(100) UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
@@ -10,8 +13,8 @@ CREATE TABLE users (
 );
 
 CREATE TABLE tasks (
-    id SERIAL PRIMARY KEY,
-    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     title VARCHAR(150) NOT NULL,
     description TEXT,
     status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'in_progress', 'done')),

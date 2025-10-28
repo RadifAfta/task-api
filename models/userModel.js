@@ -16,7 +16,7 @@ export const findUserByEmail = async (email) =>{
 // buat user baru
 export const createUser = async (name, email, passwordHash) =>{
     const query = await pool.query(
-        'INSERT INTO users (name, email, password) VALUES ($1, $2, $3) RETURNING id, name, email',
+        'INSERT INTO users (name, email, password_hash) VALUES ($1, $2, $3) RETURNING id, name, email',
         [name, email, passwordHash]
     );
     return query.rows[0];
