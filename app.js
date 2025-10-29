@@ -2,6 +2,7 @@ import express from "express";
 import dotenv from "dotenv";
 import cors from "cors";
 import routes from "./routes/index.js";
+import { swaggerUi, swaggerSpec } from "./swagger.js"; // import file swagger
 
 // Load environment variables
 dotenv.config();
@@ -13,6 +14,10 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+
+// Swagger Documentation Route
+app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // API Routes
 app.use("/api", routes);
@@ -47,7 +52,7 @@ app.use((req, res) => {
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📚 API Documentation: http://localhost:${PORT}/api`);
+  console.log(`Swagger docs available at http://localhost:${PORT}/api-docs`);
 });
 
 export default app;
