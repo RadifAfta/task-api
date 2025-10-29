@@ -1,19 +1,53 @@
 import express from "express";
 import dotenv from "dotenv";
-import authRoutes from "./routes/authRoute.js";
+import cors from "cors";
+import routes from "./routes/index.js";
 
+// Load environment variables
 dotenv.config();
+
+// Initialize express
 const app = express();
 
+// Middlewares
+app.use(cors());
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// Routes
-app.use("/api/auth", authRoutes);
+// API Routes
+app.use("/api", routes);
 
-// Default
+// Default route
 app.get("/", (req, res) => {
-  res.send("Auth API Running 🚀");
+  res.json({ 
+    message: "Task API Running 🚀",
+    version: "1.0.0"
+  });
 });
 
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({
+    status: "error",
+    message: "Something went wrong!",
+    error: process.env.NODE_ENV === 'development' ? err.message : {}
+  });
+});
+
+// Handle 404 routes
+app.use((req, res) => {
+  res.status(404).json({
+    status: "error",
+    message: "Route not found"
+  });
+});
+
+// Start server
 const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`📚 API Documentation: http://localhost:${PORT}/api`);
+});
+
+export default app;
