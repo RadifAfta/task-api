@@ -11,26 +11,41 @@ const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN;
 
 // REGISTER
 export const register = async (req, res) => {
-  const { name, email, password } = req.body;
+  const { name, email, password, role } = req.body;
 
   try {
+    // Cek apakah email sudah terdaftar
     const existingUser = await findUserByEmail(email);
     if (existingUser) {
       return res.status(400).json({ message: "Email already registered" });
     }
 
+    // Enkripsi password
     const hashedPassword = await bcrypt.hash(password, 10);
-    const newUser = await createUser(name, email, hashedPassword);
+
+    // Kirim role hanya kalau disediakan dan valid
+    const validRoles = ["user", "admin"];
+    const userRole =
+      role && validRoles.includes(role.toLowerCase()) ? role.toLowerCase() : undefined;
+
+    // Simpan user baru ke database (kalau role tidak dikirim, DB akan isi default = 'user')
+    const newUser = await createUser(name, email, hashedPassword, userRole);
 
     res.status(201).json({
-      message: "User registered successfully",
-      user: newUser,
+      message: "✅ User registered successfully",
+      user: {
+        id: newUser.id,
+        name: newUser.name,
+        email: newUser.email,
+        role: newUser.role,
+      },
     });
   } catch (error) {
-    console.error(error);
+    console.error("Register error:", error);
     res.status(500).json({ message: "Server error" });
   }
 };
+
 
 // LOGIN
 export const login = async (req, res) => {
@@ -52,7 +67,7 @@ export const login = async (req, res) => {
     res.json({
       message: "Login successful",
       token,
-      user: { id: user.id, name: user.name, email: user.email },
+      user: { id: user.id, name: user.name, email: user.email, role: user.role },
     });
   } catch (error) {
     console.error(error);

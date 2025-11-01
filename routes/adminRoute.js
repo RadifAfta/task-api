@@ -11,7 +11,7 @@ import {
 const router = express.Router();
 
 // Semua route admin hanya untuk role: admin
-router.use(verifyToken, authorizeRole(["admin"]));
+router.use(verifyToken, authorizeRole("admin"));
 
 // 🔹 Daftar semua user
 router.get("/users", getAllUsers);
