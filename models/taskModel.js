@@ -14,13 +14,32 @@ export const createTask = async (userId, title, description, status, priority, d
 };
 
 // READ ALL (BY USER)
-export const getTasksByUser = async (userId) => {
-  const result = await pool.query(
-    "SELECT * FROM tasks WHERE user_id = $1 ORDER BY created_at DESC",
-    [userId]
-  );
+export const getTasksByUser = async (userId, filters = {}) => {
+  const { status, search } = filters;
+  let query = `
+    SELECT * FROM tasks 
+    WHERE user_id = $1
+  `;
+  const values = [userId];
+  let index = 2;
+
+  if (status) {
+    query += ` AND status = $${index}`;
+    values.push(status);
+    index++;
+  }
+
+  if (search) {
+    query += ` AND (title ILIKE $${index} OR description ILIKE $${index})`;
+    values.push(`%${search}%`);
+  }
+
+  query += ` ORDER BY created_at DESC`;
+
+  const result = await pool.query(query, values);
   return result.rows;
 };
+
 
 // READ SINGLE
 export const getTaskById = async (id, userId) => {

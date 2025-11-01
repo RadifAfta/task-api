@@ -14,7 +14,7 @@ const router = express.Router();
 // Semua route butuh login
 router.use(verifyToken);
 
-// CRUD
+// CRUD Routes
 router.post("/", addTask);
 router.get("/", getAllTasks);
 router.get("/:id", getTask);
@@ -24,7 +24,7 @@ router.delete("/:id", removeTask);
 export default router;
 
 /* ============================================================
-   📘 SWAGGER DOCUMENTATION
+   📘 SWAGGER DOCUMENTATION (TASKS)
    ============================================================ */
 
 /**
@@ -102,6 +102,20 @@ export default router;
  *     summary: Ambil semua task milik user (protected)
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [pending, in_progress, done]
+ *           example: pending
+ *         description: Filter task berdasarkan status
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *           example: Belajar
+ *         description: Cari task berdasarkan judul atau deskripsi
  *     responses:
  *       200:
  *         description: Berhasil mengambil daftar task

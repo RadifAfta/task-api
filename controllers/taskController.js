@@ -33,9 +33,13 @@ export const addTask = async (req, res) => {
 // GET ALL TASKS (USER)
 export const getAllTasks = async (req, res) => {
   try {
-    const tasks = await getTasksByUser(req.user.id);
+    const userId = req.user.id;
+    const { status, search } = req.query;
+
+    const tasks = await getTasksByUser(userId, { status, search });
     res.json(tasks);
   } catch (error) {
+    console.error("Error fetching tasks:", error);
     res.status(500).json({ message: "Server error" });
   }
 };
