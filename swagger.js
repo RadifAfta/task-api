@@ -15,16 +15,53 @@ const options = {
     info: {
       title: "Task API",
       version: "1.0.0",
-      description: "RESTful Task API dengan autentikasi JWT",
+      description: `
+## 🚀 Task Management API
+
+RESTful API untuk manajemen task dengan fitur authentication dan authorization.
+
+### 🔑 Authentication
+API ini menggunakan JWT (JSON Web Token) untuk authentication. Setelah login, gunakan token yang didapat untuk mengakses protected endpoints.
+
+### 📋 Features
+- **Authentication**: Register, Login dengan JWT
+- **Task Management**: CRUD operations untuk task
+- **Pagination**: Support pagination untuk list data
+- **Admin Panel**: Endpoint khusus untuk admin
+- **Role-based Access**: User dan Admin roles
+
+### 🔄 Quick Start
+1. Register user baru di \`/auth/register\`
+2. Login di \`/auth/login\` untuk mendapatkan token
+3. Gunakan token untuk mengakses protected endpoints
+4. Set Authorization header: \`Bearer YOUR_TOKEN\`
+
+### 📖 Documentation
+Gunakan tombol **"Try it out"** pada setiap endpoint untuk testing langsung.
+      `,
+      contact: {
+        name: "API Support",
+        email: "support@taskapi.com"
+      },
+      license: {
+        name: "MIT",
+        url: "https://opensource.org/licenses/MIT"
+      }
     },
     servers: [
       {
-        url: `${HOST}${API_PREFIX}`, // server sekarang menunjuk ke http://localhost:PORT/api
+        url: `${HOST}${API_PREFIX}`,
+        description: "Development Server"
       },
     ],
     components: {
       securitySchemes: {
-        bearerAuth: { type: "http", scheme: "bearer", bearerFormat: "JWT" },
+        bearerAuth: { 
+          type: "http", 
+          scheme: "bearer", 
+          bearerFormat: "JWT",
+          description: "Masukkan JWT token dengan format: Bearer YOUR_TOKEN"
+        },
       },
       schemas: {
         ErrorResponse: {
@@ -34,8 +71,29 @@ const options = {
             message: { type: "string", example: "Something went wrong!" },
           },
         },
+        SuccessResponse: {
+          type: "object",
+          properties: {
+            status: { type: "string", example: "success" },
+            message: { type: "string", example: "Operation completed successfully" },
+          },
+        },
       },
     },
+    tags: [
+      {
+        name: "Auth",
+        description: "Authentication endpoints - Register dan Login"
+      },
+      {
+        name: "Tasks", 
+        description: "Task management endpoints - CRUD operations untuk task"
+      },
+      {
+        name: "Admin",
+        description: "Admin-only endpoints - Requires admin role"
+      }
+    ]
   },
   apis: [
     path.join(process.cwd(), "routes", "*.js"),

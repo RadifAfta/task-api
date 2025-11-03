@@ -13,33 +13,68 @@ export const createTask = async (userId, title, description, status, priority, d
   return result.rows[0];
 };
 
-// READ ALL (BY USER)
-export const getTasksByUser = async (userId, filters = {}) => {
-  const { status, search } = filters;
-  let query = `
+// READ ALL (BY USER) WITH PAGINATION
+export const getTasksByUser = async (userId, options = {}) => {
+  const { status, search, limit, offset } = options;
+  
+  // Base query untuk menghitung total
+  let countQuery = `
+    SELECT COUNT(*) as total FROM tasks 
+    WHERE user_id = $1
+  `;
+  
+  // Base query untuk mengambil data
+  let dataQuery = `
     SELECT * FROM tasks 
     WHERE user_id = $1
   `;
+  
   const values = [userId];
   let index = 2;
 
+  // Build WHERE conditions
   if (status) {
-    query += ` AND status = $${index}`;
+    const statusCondition = ` AND status = $${index}`;
+    countQuery += statusCondition;
+    dataQuery += statusCondition;
     values.push(status);
     index++;
   }
 
   if (search) {
-    query += ` AND (title ILIKE $${index} OR description ILIKE $${index})`;
+    const searchCondition = ` AND (title ILIKE $${index} OR description ILIKE $${index})`;
+    countQuery += searchCondition;
+    dataQuery += searchCondition;
     values.push(`%${search}%`);
+    index++;
   }
 
-  query += ` ORDER BY created_at DESC`;
+  // Execute count query
+  const countResult = await pool.query(countQuery, values);
+  const total = parseInt(countResult.rows[0].total);
 
-  const result = await pool.query(query, values);
-  return result.rows;
+  // Add ORDER BY, LIMIT, and OFFSET to data query
+  dataQuery += ` ORDER BY created_at DESC`;
+  
+  if (limit) {
+    dataQuery += ` LIMIT $${index}`;
+    values.push(limit);
+    index++;
+  }
+  
+  if (offset) {
+    dataQuery += ` OFFSET $${index}`;
+    values.push(offset);
+  }
+
+  // Execute data query
+  const dataResult = await pool.query(dataQuery, values);
+
+  return {
+    tasks: dataResult.rows,
+    total: total
+  };
 };
-
 
 // READ SINGLE
 export const getTaskById = async (id, userId) => {

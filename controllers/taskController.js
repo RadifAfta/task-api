@@ -5,6 +5,7 @@ import {
   updateTask,
   deleteTask,
 } from "../models/taskModel.js";
+import { createPaginationResponse, validatePaginationParams } from "../utils/pagination.js";
 
 // CREATE TASK
 export const addTask = async (req, res) => {
@@ -30,14 +31,33 @@ export const addTask = async (req, res) => {
   }
 };
 
-// GET ALL TASKS (USER)
+// GET ALL TASKS (USER) WITH PAGINATION
 export const getAllTasks = async (req, res) => {
   try {
     const userId = req.user.id;
     const { status, search } = req.query;
+    
+    // Validasi dan ambil parameter pagination
+    const { page, limit, offset } = validatePaginationParams(req.query);
 
-    const tasks = await getTasksByUser(userId, { status, search });
-    res.json(tasks);
+    // Ambil data dengan pagination
+    const result = await getTasksByUser(userId, { 
+      status, 
+      search, 
+      page, 
+      limit, 
+      offset 
+    });
+
+    // Buat response dengan pagination metadata
+    const response = createPaginationResponse(
+      result.tasks,
+      page,
+      limit,
+      result.total
+    );
+
+    res.json(response);
   } catch (error) {
     console.error("Error fetching tasks:", error);
     res.status(500).json({ message: "Server error" });
