@@ -3,6 +3,7 @@ import dotenv from "dotenv";
 import cors from "cors";
 import routes from "./routes/index.js";
 import { swaggerUi, swaggerSpec } from "./swagger.js"; // import file swagger
+import { customErrorHandler } from "./middlewares/customErrorMiddleware.js"; // import file custom error handler
 
 // Load environment variables
 dotenv.config();
@@ -22,21 +23,14 @@ app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 // API Routes
 app.use("/api", routes);
 
+// Error handling middleware (custom)
+app.use(customErrorHandler);
+
 // Default route
 app.get("/", (req, res) => {
   res.json({ 
     message: "Task API Running 🚀",
     version: "1.0.0"
-  });
-});
-
-// Error handling middleware
-app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({
-    status: "error",
-    message: "Something went wrong!",
-    error: process.env.NODE_ENV === 'development' ? err.message : {}
   });
 });
 
