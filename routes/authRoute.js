@@ -1,5 +1,9 @@
 import express from "express";
 import { register, login } from "../controllers/authController.js";
+import {
+  validateRegister,
+  validateLogin
+} from "../middlewares/validationMiddleware.js";
 
 const router = express.Router();
 
@@ -17,11 +21,11 @@ const router = express.Router();
  *     RegisterRequest:
  *       type: object
  *       required:
- *         - username
+ *         - name
  *         - email
  *         - password
  *       properties:
- *         username:
+ *         name:
  *           type: string
  *           minLength: 3
  *           example: testuser
@@ -126,7 +130,7 @@ const router = express.Router();
  *                   type: string
  *                   example: "Server error"
  */
-router.post("/register", register);
+router.post("/register", validateRegister, register);
 
 /**
  * @swagger
@@ -196,6 +200,6 @@ router.post("/register", register);
  *                   type: string
  *                   example: "Server error"
  */
-router.post("/login", login);
+router.post("/login", validateLogin, login);
 
 export default router;

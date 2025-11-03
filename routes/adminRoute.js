@@ -7,6 +7,10 @@ import {
   updateUserRole,
   deleteUser,
 } from "../controllers/adminController.js";
+import {
+  validateUserId,
+  validateUpdateRole,
+} from "../middlewares/validationMiddleware.js";
 
 const router = express.Router();
 
@@ -20,10 +24,15 @@ router.get("/users", getAllUsers);
 router.get("/tasks", getAllTasksAdmin);
 
 // 🔹 Ubah role user (user ⇄ admin)
-router.put("/users/:id/role", updateUserRole);
+router.put(
+  "/users/:id/role",
+  validateUserId,
+  validateUpdateRole,
+  updateUserRole
+);
 
 // 🔹 Hapus user
-router.delete("/users/:id", deleteUser);
+router.delete("/users/:id", validateUserId, deleteUser);
 
 export default router;
 

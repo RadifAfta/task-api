@@ -8,6 +8,12 @@ import {
   editTask,
   removeTask,
 } from "../controllers/taskController.js";
+import {
+  validateCreateTask,
+  validateUpdateTask,
+  validateTaskId,
+  validateTaskQuery
+} from "../middlewares/validationMiddleware.js";
 
 const router = express.Router();
 
@@ -15,11 +21,11 @@ const router = express.Router();
 router.use(verifyToken);
 
 // CRUD Routes
-router.post("/", addTask);
-router.get("/", getAllTasks);
-router.get("/:id", getTask);
-router.put("/:id", editTask);
-router.delete("/:id", removeTask);
+router.post("/", validateCreateTask, addTask);
+router.get("/", validateTaskQuery, getAllTasks);
+router.get("/:id", validateTaskId, getTask);
+router.put("/:id", validateTaskId, validateUpdateTask, editTask);
+router.delete("/:id", validateTaskId, removeTask);
 
 export default router;
 
