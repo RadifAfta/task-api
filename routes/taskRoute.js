@@ -52,10 +52,32 @@ export default router;
  *         description:
  *           type: string
  *           example: Integrasi Swagger di Express
+ *         status:
+ *           type: string
+ *           enum: [pending, in_progress, done]
+ *           example: pending
+ *         priority:
+ *           type: string
+ *           enum: [low, medium, high]
+ *           example: medium
+ *         category:
+ *           type: string
+ *           enum: [work, learn, rest]
+ *           example: work
  *         dueDate:
  *           type: string
  *           format: date
  *           example: 2025-12-31
+ *         timeStart:
+ *           type: string
+ *           format: time
+ *           pattern: '^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$'
+ *           example: '09:00'
+ *         timeEnd:
+ *           type: string
+ *           format: time
+ *           pattern: '^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$'
+ *           example: '17:00'
  *
  *     Task:
  *       allOf:
@@ -181,6 +203,13 @@ export default router;
  *           enum: [pending, in_progress, done]
  *         description: Filter task berdasarkan status
  *         example: pending
+ *       - in: query
+ *         name: category
+ *         schema:
+ *           type: string
+ *           enum: [work, learn, rest]
+ *         description: Filter task berdasarkan kategori
+ *         example: work
  *       - in: query
  *         name: search
  *         schema:

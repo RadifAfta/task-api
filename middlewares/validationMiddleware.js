@@ -73,6 +73,10 @@ export const validateCreateTask = [
     .optional()
     .isIn(['low', 'medium', 'high'])
     .withMessage('Priority must be one of: low, medium, high'),
+  body('category')
+    .optional()
+    .isIn(['work', 'learn', 'rest'])
+    .withMessage('Category must be one of: work, learn, rest'),
   body('dueDate')
     .optional()
     .isISO8601()
@@ -80,6 +84,24 @@ export const validateCreateTask = [
     .custom((value) => {
       if (value && new Date(value) < new Date().setHours(0, 0, 0, 0)) {
         throw new Error('Due date cannot be in the past');
+      }
+      return true;
+    }),
+  body('timeStart')
+    .optional()
+    .matches(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/)
+    .withMessage('Time start must be in HH:MM format (24-hour)'),
+  body('timeEnd')
+    .optional()
+    .matches(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/)
+    .withMessage('Time end must be in HH:MM format (24-hour)')
+    .custom((value, { req }) => {
+      if (value && req.body.timeStart) {
+        const startTime = new Date(`2000-01-01 ${req.body.timeStart}`);
+        const endTime = new Date(`2000-01-01 ${value}`);
+        if (endTime <= startTime) {
+          throw new Error('Time end must be after time start');
+        }
       }
       return true;
     }),
@@ -107,6 +129,10 @@ export const validateUpdateTask = [
     .optional()
     .isIn(['low', 'medium', 'high'])
     .withMessage('Priority must be one of: low, medium, high'),
+  body('category')
+    .optional()
+    .isIn(['work', 'learn', 'rest'])
+    .withMessage('Category must be one of: work, learn, rest'),
   body('dueDate')
     .optional()
     .isISO8601()
@@ -114,6 +140,24 @@ export const validateUpdateTask = [
     .custom((value) => {
       if (value && new Date(value) < new Date().setHours(0, 0, 0, 0)) {
         throw new Error('Due date cannot be in the past');
+      }
+      return true;
+    }),
+  body('timeStart')
+    .optional()
+    .matches(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/)
+    .withMessage('Time start must be in HH:MM format (24-hour)'),
+  body('timeEnd')
+    .optional()
+    .matches(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/)
+    .withMessage('Time end must be in HH:MM format (24-hour)')
+    .custom((value, { req }) => {
+      if (value && req.body.timeStart) {
+        const startTime = new Date(`2000-01-01 ${req.body.timeStart}`);
+        const endTime = new Date(`2000-01-01 ${value}`);
+        if (endTime <= startTime) {
+          throw new Error('Time end must be after time start');
+        }
       }
       return true;
     }),
@@ -157,6 +201,10 @@ export const validateTaskQuery = [
     .optional()
     .isIn(['pending', 'in_progress', 'done'])
     .withMessage('Status must be one of: pending, in_progress, done'),
+  query('category')
+    .optional()
+    .isIn(['work', 'learn', 'rest'])
+    .withMessage('Category must be one of: work, learn, rest'),
   query('search')
     .optional()
     .trim()

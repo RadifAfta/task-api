@@ -11,7 +11,7 @@ import { createPaginationResponse, validatePaginationParams } from "../utils/pag
 export const addTask = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { title, description, status, priority, due_date } = req.body;
+    const { title, description, status, priority, category, dueDate, timeStart, timeEnd } = req.body;
 
     if (!title) return res.status(400).json({ message: "Title is required" });
 
@@ -21,7 +21,10 @@ export const addTask = async (req, res) => {
       description || "",
       status || "pending",
       priority || "medium",
-      due_date || null
+      category || "work",
+      dueDate || null,
+      timeStart || null,
+      timeEnd || null
     );
 
     res.status(201).json({ message: "✅ Task created successfully", task: newTask });
@@ -35,7 +38,7 @@ export const addTask = async (req, res) => {
 export const getAllTasks = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { status, search } = req.query;
+    const { status, category, search } = req.query;
     
     // Validasi dan ambil parameter pagination
     const { page, limit, offset } = validatePaginationParams(req.query);
@@ -43,6 +46,7 @@ export const getAllTasks = async (req, res) => {
     // Ambil data dengan pagination
     const result = await getTasksByUser(userId, { 
       status, 
+      category,
       search, 
       page, 
       limit, 

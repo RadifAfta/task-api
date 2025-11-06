@@ -19,7 +19,10 @@ CREATE TABLE tasks (
     description TEXT,
     status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'in_progress', 'done')),
     priority VARCHAR(10) DEFAULT 'medium' CHECK (priority IN ('low', 'medium', 'high')),
+    category VARCHAR(20) DEFAULT 'work' CHECK (category IN ('work', 'learn', 'rest')),
     due_date DATE,
+    time_start TIME,
+    time_end TIME,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
