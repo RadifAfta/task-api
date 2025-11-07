@@ -4,6 +4,7 @@ import cors from "cors";
 import routes from "./routes/index.js";
 import { swaggerUi, swaggerSpec } from "./swagger.js"; // import file swagger
 import { customErrorHandler } from "./middlewares/customErrorMiddleware.js"; // import file custom error handler
+import { initializeScheduler, shutdownScheduler } from "./services/schedulerService.js"; // import scheduler
 
 // Load environment variables
 dotenv.config();
@@ -44,9 +45,33 @@ app.use((req, res) => {
 
 // Start server
 const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
-  console.log(`Swagger docs available at http://localhost:${PORT}/api-docs`);
+  console.log(`📚 Swagger docs available at http://localhost:${PORT}/api-docs`);
+  
+  // Initialize Daily Routine Scheduler
+  setTimeout(() => {
+    initializeScheduler();
+  }, 2000); // Wait 2 seconds for database connections to stabilize
+});
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('🔄 SIGTERM received, shutting down gracefully...');
+  shutdownScheduler();
+  server.close(() => {
+    console.log('✅ Process terminated');
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('🔄 SIGINT received, shutting down gracefully...');
+  shutdownScheduler();
+  server.close(() => {
+    console.log('✅ Process terminated');
+    process.exit(0);
+  });
 });
 
 export default app;

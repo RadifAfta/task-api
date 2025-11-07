@@ -9,7 +9,7 @@ import {
 } from "../controllers/adminController.js";
 import {
   validateUserId,
-  validateUpdateRole,
+  validateRoleAssignment,
 } from "../middlewares/validationMiddleware.js";
 
 const router = express.Router();
@@ -27,7 +27,7 @@ router.get("/tasks", getAllTasksAdmin);
 router.put(
   "/users/:id/role",
   validateUserId,
-  validateUpdateRole,
+  validateRoleAssignment,
   updateUserRole
 );
 
