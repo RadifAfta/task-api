@@ -6,6 +6,7 @@ import {
   deleteTask,
 } from "../models/taskModel.js";
 import { createPaginationResponse, validatePaginationParams } from "../utils/pagination.js";
+import * as reminderService from "../services/reminderService.js";
 
 // CREATE TASK
 export const addTask = async (req, res) => {
@@ -26,6 +27,22 @@ export const addTask = async (req, res) => {
       timeStart || null,
       timeEnd || null
     );
+
+    // Schedule reminders for the new task
+    if (timeStart) {
+      await reminderService.scheduleRemindersForTask({
+        ...newTask,
+        time_start: timeStart,
+        due_date: dueDate
+      });
+    }
+
+    if (dueDate) {
+      await reminderService.scheduleDueReminder({
+        ...newTask,
+        due_date: dueDate
+      });
+    }
 
     res.status(201).json({ message: "✅ Task created successfully", task: newTask });
   } catch (error) {

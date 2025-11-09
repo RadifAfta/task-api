@@ -1,11 +1,12 @@
 import cron from 'node-cron';
 import * as routineService from '../services/routineService.js';
 import * as routineModel from '../models/routineModel.js';
+import * as reminderService from '../services/reminderService.js';
 import { pool } from '../config/db.js';
 
 /**
- * Daily Routine Scheduler
- * Automatically generates daily tasks from routine templates
+ * Scheduler Service
+ * Handles automated daily routine generation and smart reminders
  */
 
 let isSchedulerRunning = false;
@@ -148,6 +149,61 @@ export const startDailyRoutineScheduler = () => {
   console.log('   🌏 Timezone: Asia/Jakarta');
 };
 
+// Start smart reminder scheduler
+export const startReminderScheduler = () => {
+  // Process pending reminders every minute
+  const reminderProcessor = cron.schedule('* * * * *', async () => {
+    try {
+      await reminderService.processPendingReminders();
+    } catch (error) {
+      console.error('❌ Reminder processing error:', error);
+    }
+  }, {
+    scheduled: false,
+    timezone: "Asia/Jakarta"
+  });
+  
+  // Check overdue tasks every 6 hours
+  const overdueChecker = cron.schedule('0 */6 * * *', async () => {
+    try {
+      await reminderService.checkOverdueTasks();
+    } catch (error) {
+      console.error('❌ Overdue check error:', error);
+    }
+  }, {
+    scheduled: false,
+    timezone: "Asia/Jakarta"
+  });
+  
+  // Send daily summaries at multiple times based on user preferences
+  // Check every 15 minutes if anyone needs summary at this time
+  const dailySummary = cron.schedule('*/15 * * * *', async () => {
+    try {
+      await reminderService.sendDailySummaries();
+    } catch (error) {
+      console.error('❌ Daily summary error:', error);
+    }
+  }, {
+    scheduled: false,
+    timezone: "Asia/Jakarta"
+  });
+  
+  reminderProcessor.start();
+  overdueChecker.start();
+  dailySummary.start();
+  
+  scheduledTasks.push(
+    { name: 'reminder-processor', task: reminderProcessor, cron: '* * * * *' },
+    { name: 'overdue-checker', task: overdueChecker, cron: '0 */6 * * *' },
+    { name: 'daily-summary', task: dailySummary, cron: '*/15 * * * *' }
+  );
+  
+  console.log('🔔 Smart reminder scheduler started:');
+  console.log('   ⏰ Processing reminders every minute');
+  console.log('   ⚠️ Checking overdue every 6 hours');
+  console.log('   📊 Daily summaries every 15 minutes (user-based)');
+};
+
 // Stop daily routine scheduler
 export const stopDailyRoutineScheduler = () => {
   if (!isSchedulerRunning) {
@@ -219,13 +275,14 @@ export const startWeeklyCleanup = () => {
 
 // Initialize scheduler (called from app.js)
 export const initializeScheduler = () => {
-  console.log('🔧 Initializing Daily Routine Scheduler...');
+  console.log('🔧 Initializing Scheduler System...');
   
   try {
     startDailyRoutineScheduler();
+    startReminderScheduler();
     startWeeklyCleanup();
     
-    console.log('✅ Daily Routine Scheduler initialized successfully');
+    console.log('✅ Scheduler System initialized successfully');
     
     // Test connection to ensure everything works
     setTimeout(async () => {
@@ -245,13 +302,14 @@ export const initializeScheduler = () => {
 
 // Graceful shutdown
 export const shutdownScheduler = () => {
-  console.log('🔄 Shutting down Daily Routine Scheduler...');
+  console.log('🔄 Shutting down Scheduler System...');
   stopDailyRoutineScheduler();
   console.log('✅ Scheduler shutdown completed');
 };
 
 export default {
   startDailyRoutineScheduler,
+  startReminderScheduler,
   stopDailyRoutineScheduler,
   getSchedulerStatus,
   triggerDailyGeneration,
