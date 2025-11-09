@@ -36,6 +36,9 @@ export const initializeTelegramBot = () => {
 
     console.log('🤖 Telegram Bot initialized successfully');
     
+    // Set bot commands menu
+    setupBotCommands();
+    
     // Setup bot command handlers
     setupBotHandlers();
     
@@ -45,6 +48,26 @@ export const initializeTelegramBot = () => {
   } catch (error) {
     console.error('❌ Failed to initialize Telegram Bot:', error.message);
     return null;
+  }
+};
+
+// Setup bot commands menu (appears in Telegram menu)
+const setupBotCommands = async () => {
+  if (!bot) return;
+
+  try {
+    await bot.setMyCommands([
+      { command: 'start', description: '🌟 Welcome message & setup guide' },
+      { command: 'login', description: '🔐 Login with email & password' },
+      { command: 'verify', description: '✅ Verify with code from app' },
+      { command: 'status', description: '📊 Check connection & settings' },
+      { command: 'help', description: '📚 Show help & commands' },
+      { command: 'menu', description: '📋 Show command menu' }
+    ]);
+    
+    console.log('✅ Telegram Bot command menu registered');
+  } catch (error) {
+    console.error('❌ Failed to set bot commands:', error);
   }
 };
 
@@ -75,17 +98,159 @@ I'm your personal task reminder assistant. I'll help you stay on track with your
 2. Enter your LifePath password when prompted
 3. Get instant verification!
 
-*Available Commands:*
-/start - Show this welcome message
-/login <email> - Login directly from Telegram
-/verify <code> - Verify with code from app
-/status - Check your connection status
-/help - Get help and information
-
-Need help? Use /help command! 💪
+*Quick Commands:*
+Tap any button below or type the command:
     `;
 
-    await bot.sendMessage(chatId, welcomeMessage, { parse_mode: 'Markdown' });
+    const keyboard = {
+      inline_keyboard: [
+        [
+          { text: '🔐 Login', callback_data: 'cmd_login' },
+          { text: '📊 Status', callback_data: 'cmd_status' }
+        ],
+        [
+          { text: '📚 Help', callback_data: 'cmd_help' },
+          { text: '📋 Menu', callback_data: 'cmd_menu' }
+        ]
+      ]
+    };
+
+    await bot.sendMessage(chatId, welcomeMessage, { 
+      parse_mode: 'Markdown',
+      reply_markup: keyboard
+    });
+  });
+
+  // /menu command - Show command menu with buttons
+  bot.onText(/\/menu/, async (msg) => {
+    const chatId = msg.chat.id;
+
+    const menuMessage = `
+📋 *LifePath Bot Commands*
+
+Select a command below or type it manually:
+
+*Connection:*
+• \`/login <email>\` - Login with email & password
+• \`/verify <code>\` - Verify with app code
+
+*Information:*
+• \`/status\` - Check connection status
+• \`/help\` - Get help & documentation
+
+*Quick Actions:*
+Use the buttons below for quick access! 👇
+    `;
+
+    const keyboard = {
+      inline_keyboard: [
+        [
+          { text: '🔐 Login Guide', callback_data: 'guide_login' },
+          { text: '✅ Verify Guide', callback_data: 'guide_verify' }
+        ],
+        [
+          { text: '📊 Check Status', callback_data: 'cmd_status' },
+          { text: '📚 Help', callback_data: 'cmd_help' }
+        ],
+        [
+          { text: '🔄 Refresh Menu', callback_data: 'cmd_menu' }
+        ]
+      ]
+    };
+
+    await bot.sendMessage(chatId, menuMessage, {
+      parse_mode: 'Markdown',
+      reply_markup: keyboard
+    });
+  });
+
+  // Handle callback queries from inline buttons
+  bot.on('callback_query', async (query) => {
+    const chatId = query.message.chat.id;
+    const data = query.data;
+
+    // Answer callback to remove loading state
+    await bot.answerCallbackQuery(query.id);
+
+    switch (data) {
+      case 'cmd_login':
+        await bot.sendMessage(chatId, 
+          '🔐 *Login Command*\n\n' +
+          'To login, use this format:\n' +
+          '\`/login your-email@example.com\`\n\n' +
+          'Example:\n' +
+          '\`/login radif@gmail.com\`\n\n' +
+          'After sending, I\'ll ask for your password.',
+          { parse_mode: 'Markdown' }
+        );
+        break;
+
+      case 'cmd_status':
+        // Trigger status command
+        await bot.sendMessage(chatId, '/status');
+        setTimeout(() => {
+          bot.emit('message', { 
+            chat: { id: chatId }, 
+            text: '/status',
+            from: query.from 
+          });
+        }, 100);
+        break;
+
+      case 'cmd_help':
+        // Trigger help command
+        setTimeout(() => {
+          bot.emit('message', { 
+            chat: { id: chatId }, 
+            text: '/help',
+            from: query.from 
+          });
+        }, 100);
+        break;
+
+      case 'cmd_menu':
+        // Trigger menu command
+        setTimeout(() => {
+          bot.emit('message', { 
+            chat: { id: chatId }, 
+            text: '/menu',
+            from: query.from 
+          });
+        }, 100);
+        break;
+
+      case 'guide_login':
+        await bot.sendMessage(chatId,
+          '📖 *Login Guide*\n\n' +
+          '*Step 1:* Send login command\n' +
+          '\`/login your-email@example.com\`\n\n' +
+          '*Step 2:* Wait for password prompt\n\n' +
+          '*Step 3:* Send your LifePath password\n' +
+          '(Message will be deleted automatically)\n\n' +
+          '*Step 4:* Get confirmation!\n' +
+          '✅ You\'re connected!\n\n' +
+          '*Security:* Your password is never stored and deleted immediately after verification.',
+          { parse_mode: 'Markdown' }
+        );
+        break;
+
+      case 'guide_verify':
+        await bot.sendMessage(chatId,
+          '📖 *Verify Guide*\n\n' +
+          '*Step 1:* Open LifePath app/web\n\n' +
+          '*Step 2:* Go to Settings → Telegram\n\n' +
+          '*Step 3:* Click "Connect Telegram"\n\n' +
+          '*Step 4:* Copy the verification code\n' +
+          '(Example: ABC123)\n\n' +
+          '*Step 5:* Come back here and send:\n' +
+          '\`/verify ABC123\`\n\n' +
+          '*Step 6:* Get confirmation!\n' +
+          '✅ Connected!\n\n' +
+          '*Note:* Code expires in 10 minutes.',
+          { parse_mode: 'Markdown' }
+        );
+        break;
+    }
   });
 
   // /login command - Login and generate code directly from Telegram
@@ -378,6 +543,7 @@ Manage your settings in the LifePath app! 📱
 
 *Available Commands:*
 /start - Welcome message and setup guide
+/menu - Show command menu with buttons
 /login <email> - Login directly from Telegram
 /verify <code> - Link with code from app
 /status - Check your connection and settings
@@ -410,6 +576,9 @@ Manage your settings in the LifePath app! 📱
 *Settings Management:*
 All reminder preferences can be configured in the LifePath app under Settings → Reminders.
 
+*Quick Access:*
+Use \`/menu\` command to see all available commands with clickable buttons! 📋
+
 *Need Support?*
 Contact: your-email@example.com
 
@@ -422,7 +591,23 @@ Contact: your-email@example.com
 Stay productive! 🚀
     `;
 
-    await bot.sendMessage(chatId, helpMessage, { parse_mode: 'Markdown' });
+    const keyboard = {
+      inline_keyboard: [
+        [
+          { text: '📋 Show Menu', callback_data: 'cmd_menu' },
+          { text: '📊 Check Status', callback_data: 'cmd_status' }
+        ],
+        [
+          { text: '🔐 Login Guide', callback_data: 'guide_login' },
+          { text: '✅ Verify Guide', callback_data: 'guide_verify' }
+        ]
+      ]
+    };
+
+    await bot.sendMessage(chatId, helpMessage, { 
+      parse_mode: 'Markdown',
+      reply_markup: keyboard
+    });
   });
 
   // Handle polling errors
