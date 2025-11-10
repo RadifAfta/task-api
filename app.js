@@ -74,7 +74,7 @@ process.on('SIGTERM', () => {
 
 process.on('SIGINT', () => {
   console.log('🔄 SIGINT received, shutting down gracefully...');
-  telegramService.stopTelegramBot();
+  telegramService.shutdownTelegramBot();
   shutdownScheduler();
   server.close(() => {
     console.log('✅ Process terminated');

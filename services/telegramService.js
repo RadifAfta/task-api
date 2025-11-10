@@ -66,6 +66,9 @@ const setupBotCommands = async () => {
       { command: 'status', description: '📊 Check connection & settings' },
       { command: 'addtask', description: '➕ Add new task' },
       { command: 'today', description: '📅 View today\'s tasks' },
+      { command: 'myroutines', description: '📋 View my routines' },
+      { command: 'createroutine', description: '✨ Create new routine template' },
+      { command: 'generateroutine', description: '🔄 Generate daily routine' },
       { command: 'help', description: '📚 Show help & commands' },
       { command: 'menu', description: '📋 Show command menu' }
     ]);
@@ -154,6 +157,10 @@ Select a command below or type it manually:
 • \`/addtask\` - Add new task
 • \`/today\` - View today's tasks
 
+*Routines:*
+• \`/myroutines\` - View routine templates
+• \`/generateroutine\` - Generate daily routine
+
 *Information:*
 • \`/status\` - Check connection status
 • \`/help\` - Get help & documentation
@@ -167,6 +174,10 @@ Use the buttons below for quick access! 👇
         [
           { text: '➕ Add Task', callback_data: 'cmd_addtask' },
           { text: '📅 Today\'s Tasks', callback_data: 'cmd_today' }
+        ],
+        [
+          { text: '📋 My Routines', callback_data: 'cmd_myroutines' },
+          { text: '🔄 Generate All', callback_data: 'generate_all_routines' }
         ],
         [
           { text: '🔐 Login Guide', callback_data: 'guide_login' },
@@ -464,14 +475,27 @@ Please send your task details in this format:
 📚 *LifePath Reminder Bot Help*
 
 *Available Commands:*
+
+*Connection:*
 /start - Welcome message and setup guide
-/menu - Show command menu with buttons
 /login <email> - Login directly from Telegram
 /verify <code> - Link with code from app
+/status - Check your connection and settings
+
+*Task Management:*
 /addtask - Add a new task
 /today - View today's tasks
-/status - Check your connection and settings
+
+*Routine Management:*
+/myroutines - View all routine templates
+/createroutine - Create new routine template
+/addtasktoroutine <id> - Add task to routine
+/generateroutine <id> - Generate daily tasks
+
+*Other:*
+/menu - Show command menu with buttons
 /help - Show this help message
+/cancel - Cancel current operation
 
 *Connection Methods:*
 
@@ -567,6 +591,11 @@ Select a command below or type it manually:
 • \`/addtask\` - Add new task
 • \`/today\` - View today's tasks
 
+*Routines:*
+• \`/myroutines\` - View routine templates
+• \`/createroutine\` - Create new routine
+• \`/generateroutine\` - Generate daily tasks
+
 *Information:*
 • \`/status\` - Check connection status
 • \`/help\` - Get help & documentation
@@ -580,6 +609,10 @@ Use the buttons below for quick access! 👇
               [
                 { text: '➕ Add Task', callback_data: 'cmd_addtask' },
                 { text: '📅 Today\'s Tasks', callback_data: 'cmd_today' }
+              ],
+              [
+                { text: '📋 My Routines', callback_data: 'cmd_myroutines' },
+                { text: '🔄 Generate All', callback_data: 'generate_all_routines' }
               ],
               [
                 { text: '🔐 Login Guide', callback_data: 'guide_login' },
@@ -633,8 +666,109 @@ Use the buttons below for quick access! 👇
           );
           break;
 
+        case 'cmd_myroutines':
+          // Trigger myroutines command - simulate command
+          setTimeout(() => {
+            bot.processUpdate({
+              update_id: Date.now(),
+              message: {
+                message_id: Date.now(),
+                from: query.from,
+                chat: query.message.chat,
+                date: Date.now(),
+                text: '/myroutines'
+              }
+            });
+          }, 100);
+          break;
+
+        case 'generate_all_routines':
+          // Generate all active routines
+          try {
+            const client = await pool.connect();
+
+            const userResult = await client.query(`
+              SELECT utc.user_id, u.name
+              FROM user_telegram_config utc
+              JOIN users u ON utc.user_id = u.id
+              WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
+            `, [chatId]);
+
+            if (userResult.rows.length === 0) {
+              client.release();
+              await bot.sendMessage(chatId, '❌ Not connected. Please use /verify or /login first.');
+              break;
+            }
+
+            const user = userResult.rows[0];
+            client.release();
+
+            await bot.sendMessage(chatId, '🔄 Generating all active routines... Please wait.');
+
+            const routineService = await import('./routineService.js');
+            const result = await routineService.generateAllDailyRoutines(user.user_id);
+
+            if (result.totalTasksGenerated === 0) {
+              await bot.sendMessage(chatId,
+                '📋 *Generation Complete*\n\n' +
+                `${result.message}\n\n` +
+                `✅ Successful: ${result.successfulGenerations}\n` +
+                `⏭️ Skipped: ${result.skippedGenerations}\n` +
+                `❌ Failed: ${result.failedGenerations}`,
+                { parse_mode: 'Markdown' }
+              );
+            } else {
+              let message = `
+✅ *All Routines Generated!*
+
+📅 *Date:* ${result.generationDate}
+📋 *Routines Processed:* ${result.totalTemplates}
+✅ *Tasks Created:* ${result.totalTasksGenerated}
+
+*Summary:*
+• Generated: ${result.successfulGenerations}
+• Skipped: ${result.skippedGenerations}
+• Failed: ${result.failedGenerations}
+
+Your daily tasks are ready! 🎉
+              `;
+
+              await bot.sendMessage(chatId, message, {
+                parse_mode: 'Markdown',
+                reply_markup: {
+                  inline_keyboard: [[
+                    { text: '📅 View Today\'s Tasks', callback_data: 'cmd_today' }
+                  ]]
+                }
+              });
+            }
+          } catch (error) {
+            console.error('Error generating all routines:', error);
+            await bot.sendMessage(chatId, `❌ Failed to generate routines: ${error.message}`);
+          }
+          break;
+
         default:
-          console.log(`Unknown callback data: ${data}`);
+          // Handle dynamic callbacks like add_task_routine_*
+          if (data.startsWith('add_task_routine_')) {
+            const routineId = data.replace('add_task_routine_', '');
+            
+            // Trigger addtasktoroutine command
+            setTimeout(() => {
+              bot.processUpdate({
+                update_id: Date.now(),
+                message: {
+                  message_id: Date.now(),
+                  from: query.from,
+                  chat: query.message.chat,
+                  date: Date.now(),
+                  text: `/addtasktoroutine ${routineId}`
+                }
+              });
+            }, 100);
+          } else {
+            console.log(`Unknown callback data: ${data}`);
+          }
           break;
       }
     } catch (error) {
@@ -1247,6 +1381,408 @@ Please send your task details in this format:
     }
   });
 
+  // /myroutines command - View user's routine templates
+  bot.onText(/\/myroutines/, async (msg) => {
+    const chatId = msg.chat.id;
+    console.log(`📋 /myroutines command received from ${msg.from.username || msg.from.first_name} (${chatId})`);
+
+    try {
+      const client = await pool.connect();
+
+      // Check if user is verified
+      const result = await client.query(`
+        SELECT utc.user_id, u.name
+        FROM user_telegram_config utc
+        JOIN users u ON utc.user_id = u.id
+        WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
+      `, [chatId]);
+
+      if (result.rows.length === 0) {
+        client.release();
+        await bot.sendMessage(chatId,
+          '❌ *Not Connected*\n\n' +
+          'Please connect your Telegram account first using /verify or /login',
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+
+      const user = result.rows[0];
+
+      // Get user's routine templates
+      const routinesResult = await client.query(`
+        SELECT rt.*, 
+               COUNT(rtt.id) as tasks_count,
+               CASE 
+                 WHEN COUNT(rtt.id) > 0 THEN true 
+                 ELSE false 
+               END as has_tasks
+        FROM routine_templates rt
+        LEFT JOIN routine_template_tasks rtt ON rt.id = rtt.routine_template_id AND rtt.is_active = true
+        WHERE rt.user_id = $1
+        GROUP BY rt.id
+        ORDER BY rt.is_active DESC, rt.created_at DESC
+      `, [user.user_id]);
+
+      client.release();
+
+      const routines = routinesResult.rows;
+
+      if (routines.length === 0) {
+        await bot.sendMessage(chatId,
+          '📋 *My Routines*\n\n' +
+          '🎯 You don\'t have any routine templates yet.\n\n' +
+          'Create your first routine template in the LifePath app to get started!',
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+
+      const activeRoutines = routines.filter(r => r.is_active);
+      const inactiveRoutines = routines.filter(r => !r.is_active);
+
+      let message = `
+📋 *My Routine Templates*
+
+You have ${routines.length} routine template${routines.length > 1 ? 's' : ''}
+`;
+
+      if (activeRoutines.length > 0) {
+        message += '\n\n✅ *ACTIVE ROUTINES:*\n';
+        activeRoutines.forEach((routine, idx) => {
+          message += `\n${idx + 1}. *${routine.name}*`;
+          if (routine.description) {
+            message += `\n   _${routine.description.substring(0, 50)}${routine.description.length > 50 ? '...' : ''}_`;
+          }
+          message += `\n   📝 ${routine.tasks_count} tasks`;
+          message += `\n   ID: \`${routine.id}\`\n`;
+        });
+      }
+
+      if (inactiveRoutines.length > 0) {
+        message += '\n\n⏸️  *INACTIVE ROUTINES:*\n';
+        inactiveRoutines.forEach((routine, idx) => {
+          message += `\n${idx + 1}. ${routine.name} (${routine.tasks_count} tasks)`;
+        });
+      }
+
+      message += '\n\n💡 *Tip:* Use `/generateroutine <routine-id>` to generate tasks from a routine!';
+
+      const keyboard = {
+        inline_keyboard: [[
+          { text: '🔄 Generate All Routines', callback_data: 'generate_all_routines' },
+          { text: '🔄 Refresh', callback_data: 'cmd_myroutines' }
+        ]]
+      };
+
+      await bot.sendMessage(chatId, message, { 
+        parse_mode: 'Markdown',
+        reply_markup: keyboard
+      });
+
+    } catch (error) {
+      console.error('Error in myroutines command:', error);
+      await bot.sendMessage(chatId, '❌ Error fetching routines. Please try again.');
+    }
+  });
+
+  // /generateroutine command - Generate tasks from routine template
+  bot.onText(/\/generateroutine(?:\s+(.+))?/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const routineId = match[1]?.trim();
+    
+    console.log(`🔄 /generateroutine command received from ${msg.from.username || msg.from.first_name} (${chatId})`);
+    console.log(`📋 Routine ID: "${routineId}"`);
+
+    try {
+      const client = await pool.connect();
+
+      // Check if user is verified
+      const result = await client.query(`
+        SELECT utc.user_id, u.name
+        FROM user_telegram_config utc
+        JOIN users u ON utc.user_id = u.id
+        WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
+      `, [chatId]);
+
+      if (result.rows.length === 0) {
+        client.release();
+        await bot.sendMessage(chatId,
+          '❌ *Not Connected*\n\n' +
+          'Please connect your Telegram account first using /verify or /login',
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+
+      const user = result.rows[0];
+
+      // If no routine ID provided, show available routines
+      if (!routineId) {
+        const routinesResult = await client.query(`
+          SELECT rt.id, rt.name, rt.description, rt.is_active,
+                 COUNT(rtt.id) as tasks_count
+          FROM routine_templates rt
+          LEFT JOIN routine_template_tasks rtt ON rt.id = rtt.routine_template_id AND rtt.is_active = true
+          WHERE rt.user_id = $1 AND rt.is_active = true
+          GROUP BY rt.id
+          ORDER BY rt.created_at DESC
+        `, [user.user_id]);
+
+        client.release();
+
+        if (routinesResult.rows.length === 0) {
+          await bot.sendMessage(chatId,
+            '🔄 *Generate Routine*\n\n' +
+            '❌ You don\'t have any active routine templates.\n\n' +
+            'Create a routine template in the LifePath app first!',
+            { 
+              parse_mode: 'Markdown',
+              reply_markup: {
+                inline_keyboard: [[
+                  { text: '📋 View My Routines', callback_data: 'cmd_myroutines' }
+                ]]
+              }
+            }
+          );
+          return;
+        }
+
+        let message = `
+🔄 *Generate Routine*
+
+Select a routine to generate, or use:
+\`/generateroutine <routine-id>\`
+
+*Available Routines:*
+`;
+
+        routinesResult.rows.forEach((routine, idx) => {
+          message += `\n${idx + 1}. *${routine.name}* (${routine.tasks_count} tasks)`;
+          message += `\n   ID: \`${routine.id}\`\n`;
+        });
+
+        await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+        return;
+      }
+
+      // Generate tasks from specific routine
+      const routineService = await import('./routineService.js');
+      
+      console.log(`🔄 Generating routine ${routineId} for user ${user.user_id}`);
+      const generationResult = await routineService.generateDailyTasksFromTemplate(user.user_id, routineId);
+
+      client.release();
+
+      if (!generationResult.success) {
+        await bot.sendMessage(chatId,
+          `⚠️ *Generation Skipped*\n\n${generationResult.message}`,
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+
+      const routine = generationResult.routineTemplate;
+      const successMessage = `
+✅ *Routine Generated Successfully!*
+
+📋 *${routine.name}*
+${routine.description ? `_${routine.description}_\n` : ''}
+📅 *Date:* ${generationResult.generationDate}
+✅ *Tasks Created:* ${generationResult.tasksGenerated}
+
+Your daily tasks have been generated! 🎉
+
+Use /today to see all your tasks for today.
+      `;
+
+      await bot.sendMessage(chatId, successMessage, { 
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [[
+            { text: '📅 View Today\'s Tasks', callback_data: 'cmd_today' },
+            { text: '📋 My Routines', callback_data: 'cmd_myroutines' }
+          ]]
+        }
+      });
+
+    } catch (error) {
+      console.error('Error in generateroutine command:', error);
+      await bot.sendMessage(chatId, `❌ Failed to generate routine: ${error.message}\n\nPlease try again.`);
+    }
+  });
+
+  // /createroutine command - Create new routine template
+  bot.onText(/\/createroutine/, async (msg) => {
+    const chatId = msg.chat.id;
+    
+    console.log(`📋 /createroutine command received from ${msg.from.username || msg.from.first_name} (${chatId})`);
+
+    try {
+      const client = await pool.connect();
+
+      // Check if user is verified
+      const result = await client.query(`
+        SELECT utc.user_id, u.name
+        FROM user_telegram_config utc
+        JOIN users u ON utc.user_id = u.id
+        WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
+      `, [chatId]);
+
+      client.release();
+
+      if (result.rows.length === 0) {
+        await bot.sendMessage(chatId,
+          '❌ *Not Connected*\n\n' +
+          'Please connect your Telegram account first using /verify or /login',
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+
+      const user = result.rows[0];
+
+      // Set state for routine creation
+      userStates.set(chatId, {
+        action: 'awaiting_routine_info',
+        userId: user.user_id,
+        userName: user.name
+      });
+
+      const message = `
+📋 *Create New Routine Template*
+
+Please send routine information in this format:
+\`Name | Description\`
+
+*Example:*
+\`Morning Routine | Daily morning productivity tasks\`
+\`Evening Routine | Wind down and prepare for tomorrow\`
+\`Study Routine | Learning and development tasks\`
+
+*Format:*
+• Name: Short name for the routine (required)
+• Description: Detailed description (optional)
+
+Send your routine info now, or /cancel to abort.
+      `;
+
+      await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+
+    } catch (error) {
+      console.error('Error in createroutine command:', error);
+      await bot.sendMessage(chatId, '❌ Error creating routine. Please try again.');
+    }
+  });
+
+  // /addtasktoroutine command - Add task to routine template
+  bot.onText(/\/addtasktoroutine\s+(.+)/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const routineId = match[1]?.trim();
+    
+    console.log(`➕ /addtasktoroutine command received from ${msg.from.username || msg.from.first_name} (${chatId})`);
+    console.log(`📋 Routine ID: "${routineId}"`);
+
+    try {
+      const client = await pool.connect();
+
+      // Check if user is verified
+      const result = await client.query(`
+        SELECT utc.user_id, u.name
+        FROM user_telegram_config utc
+        JOIN users u ON utc.user_id = u.id
+        WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
+      `, [chatId]);
+
+      if (result.rows.length === 0) {
+        client.release();
+        await bot.sendMessage(chatId,
+          '❌ *Not Connected*\n\n' +
+          'Please connect your Telegram account first using /verify or /login',
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+
+      const user = result.rows[0];
+
+      // Verify routine exists and belongs to user
+      const routineResult = await client.query(`
+        SELECT * FROM routine_templates
+        WHERE id = $1 AND user_id = $2
+      `, [routineId, user.user_id]);
+
+      client.release();
+
+      if (routineResult.rows.length === 0) {
+        await bot.sendMessage(chatId,
+          '❌ *Routine Not Found*\n\n' +
+          'This routine doesn\'t exist or doesn\'t belong to you.\n\n' +
+          'Use /myroutines to see your routines.',
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+
+      const routine = routineResult.rows[0];
+
+      // Set state for task creation
+      userStates.set(chatId, {
+        action: 'awaiting_routine_task_input',
+        userId: user.user_id,
+        userName: user.name,
+        routineId: routineId,
+        routineName: routine.name
+      });
+
+      const message = `
+➕ *Add Task to Routine*
+
+📋 Routine: *${routine.name}*
+
+Please send task information in this format:
+\`Title | Description | Priority | Category | TimeStart | TimeEnd\`
+
+*Examples:*
+\`Morning Exercise | 30 min workout | high | rest | 06:00 | 06:30\`
+\`Check Emails | Review and respond | medium | work | 09:00 | 09:30\`
+\`Study Session | Learn new topics | high | learn | 14:00 | 16:00\`
+
+*Fields:*
+• *Title:* Task name (required)
+• *Description:* Task details (optional)
+• *Priority:* high/medium/low (default: medium)
+• *Category:* work/learn/rest (default: work)
+• *TimeStart:* Start time HH:MM ⚠️ *REQUIRED for reminders!*
+• *TimeEnd:* End time HH:MM (optional)
+
+⏰ *Important:* TimeStart is REQUIRED for the reminder system to work!
+
+Send your task info now, or /cancel to abort.
+      `;
+
+      await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+
+    } catch (error) {
+      console.error('Error in addtasktoroutine command:', error);
+      await bot.sendMessage(chatId, '❌ Error. Please try again.');
+    }
+  });
+
+  // /cancel command - Cancel current operation
+  bot.onText(/\/cancel/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userState = userStates.get(chatId);
+
+    if (!userState) {
+      await bot.sendMessage(chatId, 'ℹ️ No ongoing operation to cancel.');
+      return;
+    }
+
+    userStates.delete(chatId);
+    await bot.sendMessage(chatId, '✅ Operation cancelled.');
+  });
+
   // Handle polling errors
   bot.on('polling_error', (error) => {
     console.error('Telegram Bot polling error:', error.message);
@@ -1278,6 +1814,16 @@ Please send your task details in this format:
     if (userState.action === 'awaiting_task_input') {
       console.log(`✅ Processing task input for user ${chatId}`);
       await handleTaskInput(chatId, text, userState.userId, userState.userName);
+      userStates.delete(chatId);
+      console.log(`🗑️  State cleared for user ${chatId}`);
+    } else if (userState.action === 'awaiting_routine_info') {
+      console.log(`✅ Processing routine info for user ${chatId}`);
+      await handleRoutineCreation(chatId, text, userState.userId, userState.userName);
+      userStates.delete(chatId);
+      console.log(`🗑️  State cleared for user ${chatId}`);
+    } else if (userState.action === 'awaiting_routine_task_input') {
+      console.log(`✅ Processing routine task input for user ${chatId}`);
+      await handleRoutineTaskInput(chatId, text, userState.userId, userState.routineId, userState.routineName);
       userStates.delete(chatId);
       console.log(`🗑️  State cleared for user ${chatId}`);
     } else if (userState.action === 'awaiting_password') {
@@ -1419,6 +1965,197 @@ Use /today to see all your tasks for today.
     console.error('Stack trace:', error.stack);
     await bot.sendMessage(chatId,
       `❌ Failed to create task: ${error.message}\n\nPlease try again.`,
+      { parse_mode: 'Markdown' }
+    );
+  }
+};
+
+// Helper function to handle routine creation
+const handleRoutineCreation = async (chatId, input, userId, userName) => {
+  try {
+    console.log(`🔧 handleRoutineCreation called for user ${userId} (${userName})`);
+    console.log(`📝 Input: "${input}"`);
+    
+    const parts = input.split('|').map(p => p.trim());
+    const name = parts[0];
+    const description = parts[1] || '';
+
+    if (!name) {
+      await bot.sendMessage(chatId,
+        '❌ Routine name is required! Please try /createroutine again.',
+        { parse_mode: 'Markdown' }
+      );
+      return;
+    }
+
+    // Import uuid and create routine
+    const { v4: uuidv4 } = await import('uuid');
+    const routineId = uuidv4();
+
+    const client = await pool.connect();
+
+    const insertResult = await client.query(`
+      INSERT INTO routine_templates (id, user_id, name, description, is_active)
+      VALUES ($1, $2, $3, $4, true)
+      RETURNING *
+    `, [routineId, userId, name, description]);
+
+    client.release();
+
+    const routine = insertResult.rows[0];
+
+    const successMessage = `
+✅ *Routine Template Created!*
+
+📋 *${routine.name}*
+${routine.description ? `_${routine.description}_\n` : ''}
+🆔 ID: \`${routine.id}\`
+
+*Next Steps:*
+1. Add tasks to this routine:
+   \`/addtasktoroutine ${routine.id}\`
+
+2. View your routines:
+   \`/myroutines\`
+
+3. Generate daily tasks:
+   \`/generateroutine ${routine.id}\`
+    `;
+
+    await bot.sendMessage(chatId, successMessage, { 
+      parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: [[
+          { text: '➕ Add Task to Routine', callback_data: `add_task_routine_${routine.id}` },
+          { text: '📋 My Routines', callback_data: 'cmd_myroutines' }
+        ]]
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error creating routine:', error);
+    await bot.sendMessage(chatId,
+      `❌ Failed to create routine: ${error.message}\n\nPlease try again.`,
+      { parse_mode: 'Markdown' }
+    );
+  }
+};
+
+// Helper function to handle routine task input
+const handleRoutineTaskInput = async (chatId, input, userId, routineId, routineName) => {
+  try {
+    console.log(`🔧 handleRoutineTaskInput called for routine ${routineId}`);
+    console.log(`📝 Input: "${input}"`);
+    
+    const parts = input.split('|').map(p => p.trim());
+
+    const title = parts[0];
+    const description = parts[1] || '';
+    const priority = parts[2] || 'medium';
+    const category = parts[3] || 'work';
+    const timeStart = parts[4] || null;
+    const timeEnd = parts[5] || null;
+
+    // Validate priority
+    const validPriorities = ['high', 'medium', 'low'];
+    const finalPriority = validPriorities.includes(priority.toLowerCase()) ? priority.toLowerCase() : 'medium';
+
+    // Validate category
+    const validCategories = ['work', 'learn', 'rest'];
+    const finalCategory = validCategories.includes(category.toLowerCase()) ? category.toLowerCase() : 'work';
+
+    // Validate time format (HH:MM)
+    const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
+    const finalTimeStart = timeStart && timeRegex.test(timeStart) ? timeStart : null;
+    const finalTimeEnd = timeEnd && timeRegex.test(timeEnd) ? timeEnd : null;
+
+    if (!title) {
+      await bot.sendMessage(chatId,
+        '❌ Task title is required! Please try again.',
+        { parse_mode: 'Markdown' }
+      );
+      return;
+    }
+
+    // ⚠️ VALIDASI WAJIB: time_start harus diisi untuk reminder system
+    if (!finalTimeStart) {
+      console.log(`⚠️ No valid time_start provided for routine task`);
+      await bot.sendMessage(chatId,
+        '⚠️ *Time Start Required for Reminder System*\n\n' +
+        'Routine tasks MUST have a start time for reminders to work!\n\n' +
+        '*Correct Format:*\n' +
+        '\`Title | Description | Priority | Category | TimeStart | TimeEnd\`\n\n' +
+        '*Examples:*\n' +
+        '\`Exercise | Morning workout | high | rest | 06:00 | 06:30\`\n' +
+        '\`Check Email | Review inbox | medium | work | 09:00 | 09:30\`\n' +
+        '\`Study | Learn new skills | high | learn | 14:00 | 16:00\`\n\n' +
+        '⏰ TimeStart format: HH:MM (24-hour, required)\n' +
+        '⏰ TimeEnd format: HH:MM (24-hour, optional)\n\n' +
+        'Please try again with valid time.',
+        { parse_mode: 'Markdown' }
+      );
+      return;
+    }
+
+    // Import uuid and create routine task
+    const { v4: uuidv4 } = await import('uuid');
+    const taskId = uuidv4();
+
+    const client = await pool.connect();
+
+    // Get current max order_index
+    const orderResult = await client.query(`
+      SELECT COALESCE(MAX(order_index), -1) + 1 as next_order
+      FROM routine_template_tasks
+      WHERE routine_template_id = $1
+    `, [routineId]);
+
+    const orderIndex = orderResult.rows[0].next_order;
+
+    const insertResult = await client.query(`
+      INSERT INTO routine_template_tasks 
+        (id, routine_template_id, title, description, category, priority, time_start, time_end, order_index, is_active)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true)
+      RETURNING *
+    `, [taskId, routineId, title, description, finalCategory, finalPriority, finalTimeStart, finalTimeEnd, orderIndex]);
+
+    client.release();
+
+    const task = insertResult.rows[0];
+
+    const successMessage = `
+✅ *Task Added to Routine!*
+
+📋 *Routine:* ${routineName}
+
+📝 *Task:* ${task.title}
+${task.description ? `_${task.description}_\n` : ''}
+📊 *Priority:* ${task.priority}
+📁 *Category:* ${task.category}
+⏰ *Time:* ${task.time_start}${task.time_end ? ` - ${task.time_end}` : ''}
+⏰ *Reminders:* Will be scheduled when generated
+
+*Add More Tasks:*
+\`/addtasktoroutine ${routineId}\`
+
+*View Routine:*
+\`/myroutines\`
+    `;
+
+    await bot.sendMessage(chatId, successMessage, { 
+      parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: [[
+          { text: '➕ Add Another Task', callback_data: `add_task_routine_${routineId}` },
+          { text: '📋 My Routines', callback_data: 'cmd_myroutines' }
+        ]]
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error adding task to routine:', error);
+    await bot.sendMessage(chatId,
+      `❌ Failed to add task: ${error.message}\n\nPlease try again.`,
       { parse_mode: 'Markdown' }
     );
   }
