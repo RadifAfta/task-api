@@ -65,6 +65,8 @@ const setupBotCommands = async () => {
       { command: 'verify', description: '✅ Verify with code from app' },
       { command: 'status', description: '📊 Check connection & settings' },
       { command: 'addtask', description: '➕ Add new task' },
+      { command: 'edittask', description: '✏️ Edit existing task' },
+      { command: 'deletetask', description: '🗑️ Delete task' },
       { command: 'today', description: '📅 View today\'s tasks' },
       { command: 'myroutines', description: '📋 View my routines' },
       { command: 'createroutine', description: '✨ Create new routine template' },
@@ -484,6 +486,8 @@ Please send your task details in this format:
 
 *Task Management:*
 /addtask - Add a new task
+/edittask - Edit existing task
+/deletetask - Delete task
 /today - View today's tasks
 
 *Routine Management:*
@@ -589,6 +593,8 @@ Select a command below or type it manually:
 
 *Tasks:*
 • \`/addtask\` - Add new task
+• \`/edittask\` - Edit existing task
+• \`/deletetask\` - Delete task
 • \`/today\` - View today's tasks
 
 *Routines:*
@@ -746,6 +752,38 @@ Your daily tasks are ready! 🎉
             console.error('Error generating all routines:', error);
             await bot.sendMessage(chatId, `❌ Failed to generate routines: ${error.message}`);
           }
+          break;
+
+        case 'cmd_edittask':
+          // Trigger edittask command
+          setTimeout(() => {
+            bot.processUpdate({
+              update_id: Date.now(),
+              message: {
+                message_id: Date.now(),
+                from: query.from,
+                chat: query.message.chat,
+                date: Date.now(),
+                text: '/edittask'
+              }
+            });
+          }, 100);
+          break;
+
+        case 'cmd_deletetask':
+          // Trigger deletetask command
+          setTimeout(() => {
+            bot.processUpdate({
+              update_id: Date.now(),
+              message: {
+                message_id: Date.now(),
+                from: query.from,
+                chat: query.message.chat,
+                date: Date.now(),
+                text: '/deletetask'
+              }
+            });
+          }, 100);
           break;
 
         default:
@@ -1381,6 +1419,293 @@ Please send your task details in this format:
     }
   });
 
+  // /edittask command - Edit existing task
+  bot.onText(/\/edittask(?:\s+(.+))?/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const taskId = match[1]?.trim();
+    
+    console.log(`✏️ /edittask command received from ${msg.from.username || msg.from.first_name} (${chatId})`);
+    console.log(`📋 Task ID: "${taskId}"`);
+
+    try {
+      const client = await pool.connect();
+
+      // Check if user is verified
+      const result = await client.query(`
+        SELECT utc.user_id, u.name
+        FROM user_telegram_config utc
+        JOIN users u ON utc.user_id = u.id
+        WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
+      `, [chatId]);
+
+      if (result.rows.length === 0) {
+        client.release();
+        await bot.sendMessage(chatId,
+          '❌ *Not Connected*\n\n' +
+          'Please connect your Telegram account first using /verify or /login',
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+
+      const user = result.rows[0];
+
+      // If no task ID provided, show recent tasks
+      if (!taskId) {
+        const tasksResult = await client.query(`
+          SELECT id, title, status, priority, category, time_start, time_end
+          FROM tasks
+          WHERE user_id = $1
+          AND status != 'done'
+          ORDER BY 
+            CASE priority
+              WHEN 'high' THEN 1
+              WHEN 'medium' THEN 2
+              WHEN 'low' THEN 3
+            END,
+            created_at DESC
+          LIMIT 10
+        `, [user.user_id]);
+
+        client.release();
+
+        if (tasksResult.rows.length === 0) {
+          await bot.sendMessage(chatId,
+            '✏️ *Edit Task*\n\n' +
+            '❌ You don\'t have any active tasks to edit.\n\n' +
+            'Use /addtask to create a new task.',
+            { parse_mode: 'Markdown' }
+          );
+          return;
+        }
+
+        let message = `
+✏️ *Edit Task*
+
+Select a task to edit, or use:
+/edittask <task-id>
+
+*Recent Active Tasks:*
+`;
+
+        tasksResult.rows.forEach((task, idx) => {
+          const emoji = task.priority === 'high' ? '🔴' : task.priority === 'medium' ? '🟡' : '🟢';
+          const categoryEmoji = task.category === 'work' ? '💼' : task.category === 'learn' ? '📚' : '🧘';
+          const timeInfo = task.time_start ? ` ⏰ ${task.time_start}` : '';
+          message += `\n${idx + 1}. ${emoji} ${categoryEmoji} ${task.title}${timeInfo}`;
+          message += `\n   ID: ${task.id}\n`;
+        });
+
+        message += '\n💡 Copy the task ID and use: /edittask <task-id>';
+
+        await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+        return;
+      }
+
+      // Verify task exists and belongs to user
+      const taskResult = await client.query(`
+        SELECT * FROM tasks
+        WHERE id = $1 AND user_id = $2
+      `, [taskId, user.user_id]);
+
+      client.release();
+
+      if (taskResult.rows.length === 0) {
+        await bot.sendMessage(chatId,
+          '❌ *Task Not Found*\n\n' +
+          'This task doesn\'t exist or doesn\'t belong to you.\n\n' +
+          'Use /edittask to see your tasks.',
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+
+      const task = taskResult.rows[0];
+
+      // Set state for task editing
+      userStates.set(chatId, {
+        action: 'awaiting_task_edit',
+        userId: user.user_id,
+        userName: user.name,
+        taskId: taskId,
+        currentTask: task
+      });
+
+      const message = `
+✏️ *Edit Task*
+
+*Current Task Details:*
+📝 *Title:* ${task.title}
+📄 *Description:* ${task.description || '(none)'}
+📊 *Priority:* ${task.priority}
+📁 *Category:* ${task.category}
+⏰ *Time:* ${task.time_start || '(none)'}${task.time_end ? ` - ${task.time_end}` : ''}
+📊 *Status:* ${task.status}
+
+*Format for Updates:*
+Title | Description | Priority | Category | TimeStart | TimeEnd | Status
+
+*Examples:*
+Updated Meeting | New description | high | work | 10:00 | 11:00 | pending
+Study Session | Chapter 6 | medium | learn | 15:00 | 17:00 | in\\_progress
+
+*Fields:*
+• Title: Task name (required)
+• Description: Task details (optional)
+• Priority: high/medium/low (default: ${task.priority})
+• Category: work/learn/rest (default: ${task.category})
+• TimeStart: Start time HH:MM (default: ${task.time_start || 'none'})
+• TimeEnd: End time HH:MM (default: ${task.time_end || 'none'})
+• Status: pending/in\\_progress/done (default: ${task.status})
+
+💡 *Tip:* Leave fields empty to keep current values
+Example: New Title | | | | | |  (Only changes title)
+
+Send your updates now, or /cancel to abort.
+      `;
+
+      await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+
+    } catch (error) {
+      console.error('Error in edittask command:', error);
+      await bot.sendMessage(chatId, '❌ Error. Please try again.');
+    }
+  });
+
+  // /deletetask command - Delete task
+  bot.onText(/\/deletetask(?:\s+(.+))?/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const taskId = match[1]?.trim();
+    
+    console.log(`🗑️ /deletetask command received from ${msg.from.username || msg.from.first_name} (${chatId})`);
+    console.log(`📋 Task ID: "${taskId}"`);
+
+    try {
+      const client = await pool.connect();
+
+      // Check if user is verified
+      const result = await client.query(`
+        SELECT utc.user_id, u.name
+        FROM user_telegram_config utc
+        JOIN users u ON utc.user_id = u.id
+        WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
+      `, [chatId]);
+
+      if (result.rows.length === 0) {
+        client.release();
+        await bot.sendMessage(chatId,
+          '❌ *Not Connected*\n\n' +
+          'Please connect your Telegram account first using /verify or /login',
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+
+      const user = result.rows[0];
+
+      // If no task ID provided, show recent tasks
+      if (!taskId) {
+        const tasksResult = await client.query(`
+          SELECT id, title, status, priority, category, time_start
+          FROM tasks
+          WHERE user_id = $1
+          ORDER BY created_at DESC
+          LIMIT 10
+        `, [user.user_id]);
+
+        client.release();
+
+        if (tasksResult.rows.length === 0) {
+          await bot.sendMessage(chatId,
+            '🗑️ *Delete Task*\n\n' +
+            '❌ You don\'t have any tasks to delete.\n\n' +
+            'Use /addtask to create a new task.',
+            { parse_mode: 'Markdown' }
+          );
+          return;
+        }
+
+        let message = `
+🗑️ *Delete Task*
+
+Select a task to delete, or use:
+/deletetask <task-id>
+
+*Recent Tasks:*
+`;
+
+        tasksResult.rows.forEach((task, idx) => {
+          const emoji = task.priority === 'high' ? '🔴' : task.priority === 'medium' ? '🟡' : '🟢';
+          const categoryEmoji = task.category === 'work' ? '💼' : task.category === 'learn' ? '📚' : '🧘';
+          const statusEmoji = task.status === 'done' ? '✅' : task.status === 'in_progress' ? '🔄' : '📋';
+          const timeInfo = task.time_start ? ` ⏰ ${task.time_start}` : '';
+          message += `\n${idx + 1}. ${statusEmoji} ${emoji} ${categoryEmoji} ${task.title}${timeInfo}`;
+          message += `\n   ID: ${task.id}\n`;
+        });
+
+        message += '\n⚠️ *Warning:* Deletion is permanent and cannot be undone!\n';
+        message += '\n💡 Copy the task ID and use: /deletetask <task-id>';
+
+        await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+        return;
+      }
+
+      // Verify task exists and belongs to user
+      const taskResult = await client.query(`
+        SELECT * FROM tasks
+        WHERE id = $1 AND user_id = $2
+      `, [taskId, user.user_id]);
+
+      if (taskResult.rows.length === 0) {
+        client.release();
+        await bot.sendMessage(chatId,
+          '❌ *Task Not Found*\n\n' +
+          'This task doesn\'t exist or doesn\'t belong to you.\n\n' +
+          'Use /deletetask to see your tasks.',
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+
+      const task = taskResult.rows[0];
+
+      // Delete the task
+      await client.query(`
+        DELETE FROM tasks
+        WHERE id = $1 AND user_id = $2
+      `, [taskId, user.user_id]);
+
+      client.release();
+
+      const successMessage = `
+✅ *Task Deleted Successfully!*
+
+🗑️ Deleted task: *${task.title}*
+${task.description ? `_${task.description}_\n` : ''}
+📊 Priority: ${task.priority}
+📁 Category: ${task.category}
+
+The task has been permanently removed from your list.
+
+Use /today to see your remaining tasks.
+      `;
+
+      await bot.sendMessage(chatId, successMessage, { 
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [[
+            { text: '➕ Add Task', callback_data: 'cmd_addtask' },
+            { text: '📅 Today\'s Tasks', callback_data: 'cmd_today' }
+          ]]
+        }
+      });
+
+    } catch (error) {
+      console.error('Error in deletetask command:', error);
+      await bot.sendMessage(chatId, '❌ Error deleting task. Please try again.');
+    }
+  });
+
   // /myroutines command - View user's routine templates
   bot.onText(/\/myroutines/, async (msg) => {
     const chatId = msg.chat.id;
@@ -1816,6 +2141,11 @@ Send your task info now, or /cancel to abort.
       await handleTaskInput(chatId, text, userState.userId, userState.userName);
       userStates.delete(chatId);
       console.log(`🗑️  State cleared for user ${chatId}`);
+    } else if (userState.action === 'awaiting_task_edit') {
+      console.log(`✅ Processing task edit for user ${chatId}`);
+      await handleTaskEdit(chatId, text, userState.userId, userState.taskId, userState.currentTask);
+      userStates.delete(chatId);
+      console.log(`🗑️  State cleared for user ${chatId}`);
     } else if (userState.action === 'awaiting_routine_info') {
       console.log(`✅ Processing routine info for user ${chatId}`);
       await handleRoutineCreation(chatId, text, userState.userId, userState.userName);
@@ -1965,6 +2295,157 @@ Use /today to see all your tasks for today.
     console.error('Stack trace:', error.stack);
     await bot.sendMessage(chatId,
       `❌ Failed to create task: ${error.message}\n\nPlease try again.`,
+      { parse_mode: 'Markdown' }
+    );
+  }
+};
+
+// Helper function to handle task edit
+const handleTaskEdit = async (chatId, input, userId, taskId, currentTask) => {
+  try {
+    console.log(`🔧 handleTaskEdit called for task ${taskId}`);
+    console.log(`📝 Input: "${input}"`);
+    
+    const parts = input.split('|').map(p => p.trim());
+
+    // Parse input - use current values as defaults for empty fields
+    const title = parts[0] || currentTask.title;
+    const description = parts[1] !== undefined && parts[1] !== '' ? parts[1] : currentTask.description;
+    const priority = parts[2] || currentTask.priority;
+    const category = parts[3] || currentTask.category;
+    const timeStart = parts[4] !== undefined && parts[4] !== '' ? parts[4] : currentTask.time_start;
+    const timeEnd = parts[5] !== undefined && parts[5] !== '' ? parts[5] : currentTask.time_end;
+    const status = parts[6] || currentTask.status;
+
+    console.log(`📌 Parsed - Title: "${title}", Priority: "${priority}", Category: "${category}", Status: "${status}"`);
+
+    // Validate priority
+    const validPriorities = ['high', 'medium', 'low'];
+    const finalPriority = validPriorities.includes(priority.toLowerCase()) ? priority.toLowerCase() : currentTask.priority;
+
+    // Validate category
+    const validCategories = ['work', 'learn', 'rest'];
+    const finalCategory = validCategories.includes(category.toLowerCase()) ? category.toLowerCase() : currentTask.category;
+
+    // Validate status
+    const validStatuses = ['pending', 'in_progress', 'done'];
+    const finalStatus = validStatuses.includes(status.toLowerCase()) ? status.toLowerCase() : currentTask.status;
+
+    // Validate time format (HH:MM)
+    const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
+    const finalTimeStart = timeStart && timeRegex.test(timeStart) ? timeStart : currentTask.time_start;
+    const finalTimeEnd = timeEnd && timeRegex.test(timeEnd) ? timeEnd : currentTask.time_end;
+
+    if (!title) {
+      await bot.sendMessage(chatId,
+        '❌ Task title cannot be empty! Please try again.',
+        { parse_mode: 'Markdown' }
+      );
+      return;
+    }
+
+    // Check if time_start is provided (required for reminders)
+    if (!finalTimeStart) {
+      console.log(`⚠️ Warning: No time_start for edited task`);
+      await bot.sendMessage(chatId,
+        '⚠️ *Time Start Recommended*\n\n' +
+        'Task reminders work best with a start time.\n' +
+        'Do you want to continue without time_start?\n\n' +
+        'Reply "yes" to continue or /cancel to abort.',
+        { parse_mode: 'Markdown' }
+      );
+      return;
+    }
+
+    const client = await pool.connect();
+
+    // Update task
+    const updateResult = await client.query(`
+      UPDATE tasks 
+      SET title = $1, 
+          description = $2, 
+          priority = $3, 
+          category = $4, 
+          time_start = $5, 
+          time_end = $6, 
+          status = $7,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = $8 AND user_id = $9
+      RETURNING *
+    `, [title, description, finalPriority, finalCategory, finalTimeStart, finalTimeEnd, finalStatus, taskId, userId]);
+
+    console.log(`💾 Task updated:`, updateResult.rows[0]);
+
+    const task = updateResult.rows[0];
+
+    // Reschedule reminders if time changed and status is not done
+    if (finalStatus !== 'done' && finalTimeStart) {
+      try {
+        const reminderService = await import('../services/reminderService.js');
+        // Delete old reminders
+        await client.query(`
+          DELETE FROM reminders 
+          WHERE task_id = $1 AND status = 'pending'
+        `, [taskId]);
+        
+        // Schedule new reminders
+        await reminderService.scheduleRemindersForTask({
+          ...task,
+          time_start: finalTimeStart
+        });
+        console.log(`⏰ Reminders rescheduled for task ${taskId}`);
+      } catch (reminderError) {
+        console.error('⚠️ Failed to reschedule reminders:', reminderError);
+      }
+    }
+
+    client.release();
+
+    const emoji = finalPriority === 'high' ? '🔴' : finalPriority === 'medium' ? '🟡' : '🟢';
+    const categoryEmoji = finalCategory === 'work' ? '💼' : finalCategory === 'learn' ? '📚' : '🧘';
+    const statusEmoji = finalStatus === 'done' ? '✅' : finalStatus === 'in_progress' ? '🔄' : '📋';
+
+    // Show what changed
+    let changesMessage = '';
+    if (title !== currentTask.title) changesMessage += `📝 Title updated\n`;
+    if (description !== currentTask.description) changesMessage += `📄 Description updated\n`;
+    if (finalPriority !== currentTask.priority) changesMessage += `📊 Priority changed: ${currentTask.priority} → ${finalPriority}\n`;
+    if (finalCategory !== currentTask.category) changesMessage += `📁 Category changed: ${currentTask.category} → ${finalCategory}\n`;
+    if (finalTimeStart !== currentTask.time_start) changesMessage += `⏰ Start time updated\n`;
+    if (finalTimeEnd !== currentTask.time_end) changesMessage += `⏰ End time updated\n`;
+    if (finalStatus !== currentTask.status) changesMessage += `📊 Status changed: ${currentTask.status} → ${finalStatus}\n`;
+
+    const successMessage = `
+✅ *Task Updated Successfully!*
+
+${statusEmoji} ${categoryEmoji} *${task.title}*
+${task.description ? `_${task.description}_\n` : ''}
+${emoji} *Priority:* ${finalPriority.toUpperCase()}
+📁 *Category:* ${finalCategory}
+🕐 *Time:* ${finalTimeStart}${finalTimeEnd ? ` - ${finalTimeEnd}` : ''}
+📊 *Status:* ${finalStatus}
+${finalStatus !== 'done' && finalTimeStart ? '⏰ *Reminders:* Rescheduled' : ''}
+
+*Changes Made:*
+${changesMessage || 'No changes detected'}
+
+Use /today to see your updated task list.
+    `;
+
+    await bot.sendMessage(chatId, successMessage, { 
+      parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: [[
+          { text: '✏️ Edit Again', callback_data: 'cmd_edittask' },
+          { text: '📅 Today\'s Tasks', callback_data: 'cmd_today' }
+        ]]
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error updating task:', error);
+    await bot.sendMessage(chatId,
+      `❌ Failed to update task: ${error.message}\n\nPlease try again.`,
       { parse_mode: 'Markdown' }
     );
   }
