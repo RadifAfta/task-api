@@ -7,6 +7,9 @@ dotenv.config();
 let bot = null;
 let isInitialized = false;
 
+// Store user states for multi-step commands
+const userStates = new Map();
+
 /**
  * Telegram Bot Service for LifePath Smart Reminder System
  * Handles bot communication, user verification, and notification sending
@@ -61,6 +64,8 @@ const setupBotCommands = async () => {
       { command: 'login', description: '🔐 Login with email & password' },
       { command: 'verify', description: '✅ Verify with code from app' },
       { command: 'status', description: '📊 Check connection & settings' },
+      { command: 'addtask', description: '➕ Add new task' },
+      { command: 'today', description: '📅 View today\'s tasks' },
       { command: 'help', description: '📚 Show help & commands' },
       { command: 'menu', description: '📋 Show command menu' }
     ]);
@@ -98,12 +103,23 @@ I'm your personal task reminder assistant. I'll help you stay on track with your
 2. Enter your LifePath password when prompted
 3. Get instant verification!
 
+*What You Can Do:*
+• ➕ Add tasks with \`/addtask\`
+• 📅 View today's tasks with \`/today\`
+• ⏰ Get automatic task reminders
+• 📊 Receive daily summaries
+• 🎯 Track your progress
+
 *Quick Commands:*
 Tap any button below or type the command:
     `;
 
     const keyboard = {
       inline_keyboard: [
+        [
+          { text: '➕ Add Task', callback_data: 'cmd_addtask' },
+          { text: '📅 Today\'s Tasks', callback_data: 'cmd_today' }
+        ],
         [
           { text: '🔐 Login', callback_data: 'cmd_login' },
           { text: '📊 Status', callback_data: 'cmd_status' }
@@ -134,6 +150,10 @@ Select a command below or type it manually:
 • \`/login <email>\` - Login with email & password
 • \`/verify <code>\` - Verify with app code
 
+*Tasks:*
+• \`/addtask\` - Add new task
+• \`/today\` - View today's tasks
+
 *Information:*
 • \`/status\` - Check connection status
 • \`/help\` - Get help & documentation
@@ -144,6 +164,10 @@ Use the buttons below for quick access! 👇
 
     const keyboard = {
       inline_keyboard: [
+        [
+          { text: '➕ Add Task', callback_data: 'cmd_addtask' },
+          { text: '📅 Today\'s Tasks', callback_data: 'cmd_today' }
+        ],
         [
           { text: '🔐 Login Guide', callback_data: 'guide_login' },
           { text: '✅ Verify Guide', callback_data: 'guide_verify' }
@@ -172,84 +196,450 @@ Use the buttons below for quick access! 👇
     // Answer callback to remove loading state
     await bot.answerCallbackQuery(query.id);
 
-    switch (data) {
-      case 'cmd_login':
-        await bot.sendMessage(chatId, 
-          '🔐 *Login Command*\n\n' +
-          'To login, use this format:\n' +
-          '\`/login your-email@example.com\`\n\n' +
-          'Example:\n' +
-          '\`/login radif@gmail.com\`\n\n' +
-          'After sending, I\'ll ask for your password.',
-          { parse_mode: 'Markdown' }
-        );
-        break;
+    try {
+      switch (data) {
+        case 'cmd_login':
+          await bot.sendMessage(chatId, 
+            '🔐 *Login Command*\n\n' +
+            'To login, use this format:\n' +
+            '\`/login your-email@example.com\`\n\n' +
+            'Example:\n' +
+            '\`/login radif@gmail.com\`\n\n' +
+            'After sending, I\'ll ask for your password.',
+            { parse_mode: 'Markdown' }
+          );
+          break;
 
-      case 'cmd_status':
-        // Trigger status command
-        await bot.sendMessage(chatId, '/status');
-        setTimeout(() => {
-          bot.emit('message', { 
-            chat: { id: chatId }, 
-            text: '/status',
-            from: query.from 
+        case 'cmd_status':
+          // Execute status command directly
+          try {
+            const client = await pool.connect();
+
+            const result = await client.query(`
+              SELECT utc.*, u.name, u.email, rs.*
+              FROM user_telegram_config utc
+              JOIN users u ON utc.user_id = u.id
+              LEFT JOIN reminder_settings rs ON utc.user_id = rs.user_id
+              WHERE utc.telegram_chat_id = $1
+            `, [chatId]);
+
+            client.release();
+
+            if (result.rows.length === 0) {
+              await bot.sendMessage(chatId,
+                '❌ *Not Connected*\n\n' +
+                'Your Telegram account is not linked to LifePath.\n' +
+                'Use /verify <code> to connect your account.',
+                { parse_mode: 'Markdown' }
+              );
+              break;
+            }
+
+            const config = result.rows[0];
+
+            const statusMessage = `
+✅ *Connection Status*
+
+*Account:* ${config.name}
+*Email:* ${config.email}
+*Verified:* ${config.is_verified ? '✅ Yes' : '❌ No'}
+*Active:* ${config.is_active ? '✅ Active' : '⏸️  Paused'}
+
+*Reminder Settings:*
+• Task Start Reminders: ${config.enable_task_start_reminder ? '✅' : '❌'}
+• Task Due Reminders: ${config.enable_task_due_reminder ? '✅' : '❌'}
+• Daily Summary: ${config.enable_daily_summary ? '✅' : '❌'}
+• Routine Notices: ${config.enable_routine_generation_notice ? '✅' : '❌'}
+
+*Quiet Hours:* ${config.quiet_hours_enabled ? `🌙 ${config.quiet_hours_start} - ${config.quiet_hours_end}` : '❌ Disabled'}
+
+Manage your settings in the LifePath app! 📱
+            `;
+
+            await bot.sendMessage(chatId, statusMessage, { parse_mode: 'Markdown' });
+          } catch (error) {
+            console.error('Error checking status:', error);
+            await bot.sendMessage(chatId, '❌ Error checking status. Please try again.');
+          }
+          break;
+
+        case 'cmd_addtask':
+          // Execute addtask command directly
+          try {
+            const client = await pool.connect();
+
+            const result = await client.query(`
+              SELECT utc.user_id, u.name
+              FROM user_telegram_config utc
+              JOIN users u ON utc.user_id = u.id
+              WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
+            `, [chatId]);
+
+            client.release();
+
+            if (result.rows.length === 0) {
+              await bot.sendMessage(chatId,
+                '❌ *Not Connected*\n\n' +
+                'Please connect your Telegram account first using /verify or /login',
+                { parse_mode: 'Markdown' }
+              );
+              break;
+            }
+
+            const user = result.rows[0];
+
+            // Set user state to await task input
+            userStates.set(chatId, {
+              action: 'awaiting_task_input',
+              userId: user.user_id,
+              userName: user.name
+            });
+
+            const addTaskMessage = `
+➕ *Add New Task*
+
+Please send your task details in this format:
+
+\`Title | Description | Priority | Category | TimeStart | TimeEnd\`
+
+*Examples:*
+\`Team Meeting | Discuss Q4 goals | high | work | 09:00 | 10:00\`
+\`Study Python | Complete chapter 5 | medium | learn | 14:30 | 16:00\`
+\`Meditation | Morning routine | low | rest | 06:00 | 06:30\`
+
+*Fields:*
+• *Title* (required)
+• *Description* (optional)
+• *Priority:* high, medium, low (optional, default: medium)
+• *Category:* work, learn, rest (optional, default: work)
+• *TimeStart* (required for reminders) - format: HH:MM (24-hour)
+• *TimeEnd* (optional) - format: HH:MM (24-hour)
+
+*Minimal format with time:*
+\`Team Meeting | | | | 09:00 | 10:00\`
+
+*Or use directly:*
+\`/addtask Meeting | Discuss goals | high | work | 09:00 | 10:00\`
+
+⚠️ *Note:* TimeStart is required to enable task reminders!
+            `;
+
+            await bot.sendMessage(chatId, addTaskMessage, { parse_mode: 'Markdown' });
+          } catch (error) {
+            console.error('Error in addtask callback:', error);
+            await bot.sendMessage(chatId, '❌ Error processing request. Please try again.');
+          }
+          break;
+
+        case 'cmd_today':
+          // Execute today command directly
+          try {
+            const client = await pool.connect();
+
+            const result = await client.query(`
+              SELECT utc.user_id, u.name
+              FROM user_telegram_config utc
+              JOIN users u ON utc.user_id = u.id
+              WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
+            `, [chatId]);
+
+            if (result.rows.length === 0) {
+              client.release();
+              await bot.sendMessage(chatId,
+                '❌ *Not Connected*\n\n' +
+                'Please connect your Telegram account first using /verify or /login',
+                { parse_mode: 'Markdown' }
+              );
+              break;
+            }
+
+            const user = result.rows[0];
+
+            // Get today's tasks
+            const today = new Date();
+            const todayStr = today.toISOString().split('T')[0];
+
+            const tasksResult = await client.query(`
+              SELECT * FROM tasks
+              WHERE user_id = $1
+              AND (
+                DATE(created_at) = $2
+                OR DATE(due_date) = $2
+                OR (due_date IS NULL AND status != 'done')
+              )
+              ORDER BY 
+                CASE priority
+                  WHEN 'high' THEN 1
+                  WHEN 'medium' THEN 2
+                  WHEN 'low' THEN 3
+                END,
+                time_start ASC,
+                created_at DESC
+            `, [user.user_id, todayStr]);
+
+            client.release();
+
+            const tasks = tasksResult.rows;
+
+            if (tasks.length === 0) {
+              await bot.sendMessage(chatId,
+                '📅 *Today\'s Tasks*\n\n' +
+                '🎉 No tasks for today!\n\n' +
+                'Use /addtask to create a new task.',
+                { 
+                  parse_mode: 'Markdown',
+                  reply_markup: {
+                    inline_keyboard: [[
+                      { text: '➕ Add Task', callback_data: 'cmd_addtask' }
+                    ]]
+                  }
+                }
+              );
+              break;
+            }
+
+            // Group tasks by status
+            const pendingTasks = tasks.filter(t => t.status === 'pending');
+            const inProgressTasks = tasks.filter(t => t.status === 'in_progress');
+            const completedTasks = tasks.filter(t => t.status === 'done');
+
+            let message = `
+📅 *Today's Tasks* - ${today.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+
+📊 *Overview:*
+• Pending: ${pendingTasks.length}
+• In Progress: ${inProgressTasks.length}
+• Completed: ${completedTasks.length}
+• *Total:* ${tasks.length}
+`;
+
+            if (pendingTasks.length > 0) {
+              message += '\n📋 *PENDING TASKS:*\n';
+              pendingTasks.forEach((task, idx) => {
+                const emoji = task.priority === 'high' ? '🔴' : task.priority === 'medium' ? '🟡' : '🟢';
+                const categoryEmoji = task.category === 'work' ? '💼' : task.category === 'learn' ? '📚' : '🧘';
+                const timeInfo = task.time_start ? ` ⏰ ${task.time_start}` : '';
+                message += `\n${idx + 1}. ${emoji} ${categoryEmoji} *${task.title}*${timeInfo}`;
+                if (task.description && task.description.length > 0) {
+                  message += `\n   _${task.description.substring(0, 50)}${task.description.length > 50 ? '...' : ''}_`;
+                }
+              });
+            }
+
+            if (inProgressTasks.length > 0) {
+              message += '\n\n🔄 *IN PROGRESS:*\n';
+              inProgressTasks.forEach((task, idx) => {
+                const categoryEmoji = task.category === 'work' ? '💼' : task.category === 'learn' ? '📚' : '🧘';
+                message += `\n${idx + 1}. ${categoryEmoji} *${task.title}*`;
+              });
+            }
+
+            if (completedTasks.length > 0) {
+              message += '\n\n✅ *COMPLETED:*\n';
+              completedTasks.forEach((task, idx) => {
+                message += `\n${idx + 1}. ~~${task.title}~~`;
+              });
+            }
+
+            message += '\n\n💪 Keep up the great work!';
+
+            await bot.sendMessage(chatId, message, { 
+              parse_mode: 'Markdown',
+              reply_markup: {
+                inline_keyboard: [[
+                  { text: '➕ Add Task', callback_data: 'cmd_addtask' },
+                  { text: '🔄 Refresh', callback_data: 'cmd_today' }
+                ]]
+              }
+            });
+          } catch (error) {
+            console.error('Error in today callback:', error);
+            await bot.sendMessage(chatId, '❌ Error fetching tasks. Please try again.');
+          }
+          break;
+
+        case 'cmd_help':
+          // Execute help command directly
+          const helpMessage = `
+📚 *LifePath Reminder Bot Help*
+
+*Available Commands:*
+/start - Welcome message and setup guide
+/menu - Show command menu with buttons
+/login <email> - Login directly from Telegram
+/verify <code> - Link with code from app
+/addtask - Add a new task
+/today - View today's tasks
+/status - Check your connection and settings
+/help - Show this help message
+
+*Connection Methods:*
+
+*Method 1: Quick Login from Telegram* 🚀
+1. \`/login your-email@example.com\`
+2. Send your password when prompted
+3. Instantly connected!
+
+*Method 2: Verify with App Code* 📱
+1. Generate code in LifePath app
+2. \`/verify ABC123\` with your code
+3. Connected!
+
+*Task Management:*
+
+*Add Task* ➕
+Use \`/addtask\` and follow the format:
+\`Title | Description | Priority | Category | TimeStart | TimeEnd\`
+
+Example:
+\`Team Meeting | Discuss Q4 goals | high | work | 09:00 | 10:00\`
+
+*View Today's Tasks* 📅
+Use \`/today\` to see all tasks for today, organized by status (pending, in progress, completed).
+
+*About Reminders:*
+• Get notified before your tasks start
+• Receive daily task summaries
+• Get alerts for overdue tasks
+• Notifications for routine generation
+
+*Customization:*
+• Set reminder timing (15, 30, 60 minutes before)
+• Choose daily summary time
+• Enable/disable specific notification types
+• Set quiet hours (no notifications)
+
+*Settings Management:*
+All reminder preferences can be configured in the LifePath app under Settings → Reminders.
+
+*Quick Access:*
+Use \`/menu\` command to see all available commands with clickable buttons! 📋
+
+*Need Support?*
+Contact: your-email@example.com
+
+*Pro Tips:* 💡
+• Keep notifications enabled for best experience
+• Set quiet hours for undisturbed sleep
+• Adjust reminder timing to match your workflow
+• Use daily summaries for morning planning
+• Use /addtask for quick task creation
+• Check /today regularly to stay on track
+
+Stay productive! 🚀
+          `;
+
+          const helpKeyboard = {
+            inline_keyboard: [
+              [
+                { text: '➕ Add Task', callback_data: 'cmd_addtask' },
+                { text: '📅 Today\'s Tasks', callback_data: 'cmd_today' }
+              ],
+              [
+                { text: '📋 Show Menu', callback_data: 'cmd_menu' },
+                { text: '📊 Check Status', callback_data: 'cmd_status' }
+              ],
+              [
+                { text: '🔐 Login Guide', callback_data: 'guide_login' },
+                { text: '✅ Verify Guide', callback_data: 'guide_verify' }
+              ]
+            ]
+          };
+
+          await bot.sendMessage(chatId, helpMessage, { 
+            parse_mode: 'Markdown',
+            reply_markup: helpKeyboard
           });
-        }, 100);
-        break;
+          break;
 
-      case 'cmd_help':
-        // Trigger help command
-        setTimeout(() => {
-          bot.emit('message', { 
-            chat: { id: chatId }, 
-            text: '/help',
-            from: query.from 
+        case 'cmd_menu':
+          // Execute menu command directly
+          const menuMessage = `
+📋 *LifePath Bot Commands*
+
+Select a command below or type it manually:
+
+*Connection:*
+• \`/login <email>\` - Login with email & password
+• \`/verify <code>\` - Verify with app code
+
+*Tasks:*
+• \`/addtask\` - Add new task
+• \`/today\` - View today's tasks
+
+*Information:*
+• \`/status\` - Check connection status
+• \`/help\` - Get help & documentation
+
+*Quick Actions:*
+Use the buttons below for quick access! 👇
+          `;
+
+          const menuKeyboard = {
+            inline_keyboard: [
+              [
+                { text: '➕ Add Task', callback_data: 'cmd_addtask' },
+                { text: '📅 Today\'s Tasks', callback_data: 'cmd_today' }
+              ],
+              [
+                { text: '🔐 Login Guide', callback_data: 'guide_login' },
+                { text: '✅ Verify Guide', callback_data: 'guide_verify' }
+              ],
+              [
+                { text: '📊 Check Status', callback_data: 'cmd_status' },
+                { text: '📚 Help', callback_data: 'cmd_help' }
+              ],
+              [
+                { text: '🔄 Refresh Menu', callback_data: 'cmd_menu' }
+              ]
+            ]
+          };
+
+          await bot.sendMessage(chatId, menuMessage, {
+            parse_mode: 'Markdown',
+            reply_markup: menuKeyboard
           });
-        }, 100);
-        break;
+          break;
 
-      case 'cmd_menu':
-        // Trigger menu command
-        setTimeout(() => {
-          bot.emit('message', { 
-            chat: { id: chatId }, 
-            text: '/menu',
-            from: query.from 
-          });
-        }, 100);
-        break;
+        case 'guide_login':
+          await bot.sendMessage(chatId,
+            '📖 *Login Guide*\n\n' +
+            '*Step 1:* Send login command\n' +
+            '\`/login your-email@example.com\`\n\n' +
+            '*Step 2:* Wait for password prompt\n\n' +
+            '*Step 3:* Send your LifePath password\n' +
+            '(Message will be deleted automatically)\n\n' +
+            '*Step 4:* Get confirmation!\n' +
+            '✅ You\'re connected!\n\n' +
+            '*Security:* Your password is never stored and deleted immediately after verification.',
+            { parse_mode: 'Markdown' }
+          );
+          break;
 
-      case 'guide_login':
-        await bot.sendMessage(chatId,
-          '📖 *Login Guide*\n\n' +
-          '*Step 1:* Send login command\n' +
-          '\`/login your-email@example.com\`\n\n' +
-          '*Step 2:* Wait for password prompt\n\n' +
-          '*Step 3:* Send your LifePath password\n' +
-          '(Message will be deleted automatically)\n\n' +
-          '*Step 4:* Get confirmation!\n' +
-          '✅ You\'re connected!\n\n' +
-          '*Security:* Your password is never stored and deleted immediately after verification.',
-          { parse_mode: 'Markdown' }
-        );
-        break;
+        case 'guide_verify':
+          await bot.sendMessage(chatId,
+            '📖 *Verify Guide*\n\n' +
+            '*Step 1:* Open LifePath app/web\n\n' +
+            '*Step 2:* Go to Settings → Telegram\n\n' +
+            '*Step 3:* Click "Connect Telegram"\n\n' +
+            '*Step 4:* Copy the verification code\n' +
+            '(Example: ABC123)\n\n' +
+            '*Step 5:* Come back here and send:\n' +
+            '\`/verify ABC123\`\n\n' +
+            '*Step 6:* Get confirmation!\n' +
+            '✅ Connected!\n\n' +
+            '*Note:* Code expires in 10 minutes.',
+            { parse_mode: 'Markdown' }
+          );
+          break;
 
-      case 'guide_verify':
-        await bot.sendMessage(chatId,
-          '📖 *Verify Guide*\n\n' +
-          '*Step 1:* Open LifePath app/web\n\n' +
-          '*Step 2:* Go to Settings → Telegram\n\n' +
-          '*Step 3:* Click "Connect Telegram"\n\n' +
-          '*Step 4:* Copy the verification code\n' +
-          '(Example: ABC123)\n\n' +
-          '*Step 5:* Come back here and send:\n' +
-          '\`/verify ABC123\`\n\n' +
-          '*Step 6:* Get confirmation!\n' +
-          '✅ Connected!\n\n' +
-          '*Note:* Code expires in 10 minutes.',
-          { parse_mode: 'Markdown' }
-        );
-        break;
+        default:
+          console.log(`Unknown callback data: ${data}`);
+          break;
+      }
+    } catch (error) {
+      console.error('Error handling callback query:', error);
+      await bot.sendMessage(chatId, '❌ An error occurred. Please try again.');
     }
   });
 
@@ -546,6 +936,8 @@ Manage your settings in the LifePath app! 📱
 /menu - Show command menu with buttons
 /login <email> - Login directly from Telegram
 /verify <code> - Link with code from app
+/addtask - Add a new task
+/today - View today's tasks
 /status - Check your connection and settings
 /help - Show this help message
 
@@ -560,6 +952,18 @@ Manage your settings in the LifePath app! 📱
 1. Generate code in LifePath app
 2. \`/verify ABC123\` with your code
 3. Connected!
+
+*Task Management:*
+
+*Add Task* ➕
+Use \`/addtask\` and follow the format:
+\`Title | Description | Priority | Category\`
+
+Example:
+\`Team Meeting | Discuss Q4 goals | high | work\`
+
+*View Today's Tasks* 📅
+Use \`/today\` to see all tasks for today, organized by status (pending, in progress, completed).
 
 *About Reminders:*
 • Get notified before your tasks start
@@ -587,12 +991,18 @@ Contact: your-email@example.com
 • Set quiet hours for undisturbed sleep
 • Adjust reminder timing to match your workflow
 • Use daily summaries for morning planning
+• Use /addtask for quick task creation
+• Check /today regularly to stay on track
 
 Stay productive! 🚀
     `;
 
     const keyboard = {
       inline_keyboard: [
+        [
+          { text: '➕ Add Task', callback_data: 'cmd_addtask' },
+          { text: '📅 Today\'s Tasks', callback_data: 'cmd_today' }
+        ],
         [
           { text: '📋 Show Menu', callback_data: 'cmd_menu' },
           { text: '📊 Check Status', callback_data: 'cmd_status' }
@@ -610,18 +1020,408 @@ Stay productive! 🚀
     });
   });
 
+  // /addtask command - Add new task
+  bot.onText(/\/addtask(?:\s+(.+))?/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const taskDetails = match[1]; // Text after /addtask (if any)
+    
+    console.log(`📝 /addtask command received from ${msg.from.username || msg.from.first_name} (${chatId})`);
+    console.log(`📋 Task details in command: "${taskDetails}"`);
+
+    try {
+      const client = await pool.connect();
+
+      // Check if user is verified
+      const result = await client.query(`
+        SELECT utc.user_id, u.name
+        FROM user_telegram_config utc
+        JOIN users u ON utc.user_id = u.id
+        WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
+      `, [chatId]);
+
+      client.release();
+
+      console.log(`🔍 User verification result:`, result.rows);
+
+      if (result.rows.length === 0) {
+        console.log(`❌ User not verified for chatId: ${chatId}`);
+        await bot.sendMessage(chatId,
+          '❌ *Not Connected*\n\n' +
+          'Please connect your Telegram account first using /verify or /login',
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+
+      const user = result.rows[0];
+      console.log(`✅ User verified: ${user.name} (${user.user_id})`);
+
+      // If task details provided in command, process immediately
+      if (taskDetails && taskDetails.trim()) {
+        console.log(`⚡ Processing task immediately: "${taskDetails}"`);
+        await handleTaskInput(chatId, taskDetails.trim(), user.user_id, user.name);
+        return;
+      }
+
+      // Otherwise, set user state to await task input
+      userStates.set(chatId, {
+        action: 'awaiting_task_input',
+        userId: user.user_id,
+        userName: user.name
+      });
+      
+      console.log(`💾 State saved for ${chatId}:`, userStates.get(chatId));
+      console.log(`📊 Total states in memory:`, userStates.size);
+
+      const addTaskMessage = `
+➕ *Add New Task*
+
+Please send your task details in this format:
+
+\`Title | Description | Priority | Category | TimeStart | TimeEnd\`
+
+*Examples:*
+\`Team Meeting | Discuss Q4 goals | high | work | 09:00 | 10:00\`
+\`Study Python | Complete chapter 5 | medium | learn | 14:30 | 16:00\`
+\`Meditation | Morning routine | low | rest | 06:00 | 06:30\`
+
+*Fields:*
+• *Title* (required)
+• *Description* (optional)
+• *Priority:* high, medium, low (optional, default: medium)
+• *Category:* work, learn, rest (optional, default: work)
+• *TimeStart* (required for reminders) - format: HH:MM (24-hour)
+• *TimeEnd* (optional) - format: HH:MM (24-hour)
+
+*Minimal format with time:*
+\`Team Meeting | | | | 09:00 | 10:00\`
+
+*Or use directly:*
+\`/addtask Meeting | Discuss goals | high | work | 09:00 | 10:00\`
+
+⚠️ *Note:* TimeStart is required to enable task reminders!
+      `;
+
+      await bot.sendMessage(chatId, addTaskMessage, { parse_mode: 'Markdown' });
+      console.log(`📤 Instructions sent to user ${chatId}`);
+
+    } catch (error) {
+      console.error('❌ Error in addtask command:', error);
+      console.error('Stack trace:', error.stack);
+      await bot.sendMessage(chatId, `❌ Error processing request: ${error.message}\n\nPlease try again.`);
+      userStates.delete(chatId);
+    }
+  });
+
+  // /today command - View today's tasks
+  bot.onText(/\/today/, async (msg) => {
+    const chatId = msg.chat.id;
+
+    try {
+      const client = await pool.connect();
+
+      // Check if user is verified
+      const result = await client.query(`
+        SELECT utc.user_id, u.name
+        FROM user_telegram_config utc
+        JOIN users u ON utc.user_id = u.id
+        WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
+      `, [chatId]);
+
+      if (result.rows.length === 0) {
+        client.release();
+        await bot.sendMessage(chatId,
+          '❌ *Not Connected*\n\n' +
+          'Please connect your Telegram account first using /verify or /login',
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+
+      const user = result.rows[0];
+
+      // Get today's tasks
+      const today = new Date();
+      const todayStr = today.toISOString().split('T')[0];
+
+      const tasksResult = await client.query(`
+        SELECT * FROM tasks
+        WHERE user_id = $1
+        AND (
+          DATE(created_at) = $2
+          OR DATE(due_date) = $2
+          OR (due_date IS NULL AND status != 'done')
+        )
+        ORDER BY 
+          CASE priority
+            WHEN 'high' THEN 1
+            WHEN 'medium' THEN 2
+            WHEN 'low' THEN 3
+          END,
+          time_start ASC,
+          created_at DESC
+      `, [user.user_id, todayStr]);
+
+      client.release();
+
+      const tasks = tasksResult.rows;
+
+      if (tasks.length === 0) {
+        await bot.sendMessage(chatId,
+          '📅 *Today\'s Tasks*\n\n' +
+          '🎉 No tasks for today!\n\n' +
+          'Use /addtask to create a new task.',
+          { 
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [[
+                { text: '➕ Add Task', callback_data: 'cmd_addtask' }
+              ]]
+            }
+          }
+        );
+        return;
+      }
+
+      // Group tasks by status
+      const pendingTasks = tasks.filter(t => t.status === 'pending');
+      const inProgressTasks = tasks.filter(t => t.status === 'in_progress');
+      const completedTasks = tasks.filter(t => t.status === 'done');
+
+      let message = `
+📅 *Today's Tasks* - ${today.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+
+📊 *Overview:*
+• Pending: ${pendingTasks.length}
+• In Progress: ${inProgressTasks.length}
+• Completed: ${completedTasks.length}
+• *Total:* ${tasks.length}
+`;
+
+      // Show pending tasks
+      if (pendingTasks.length > 0) {
+        message += '\n📋 *PENDING TASKS:*\n';
+        pendingTasks.forEach((task, idx) => {
+          const emoji = task.priority === 'high' ? '🔴' : task.priority === 'medium' ? '🟡' : '🟢';
+          const categoryEmoji = task.category === 'work' ? '💼' : task.category === 'learn' ? '📚' : '🧘';
+          const timeInfo = task.time_start ? ` ⏰ ${task.time_start}` : '';
+          message += `\n${idx + 1}. ${emoji} ${categoryEmoji} *${task.title}*${timeInfo}`;
+          if (task.description && task.description.length > 0) {
+            message += `\n   _${task.description.substring(0, 50)}${task.description.length > 50 ? '...' : ''}_`;
+          }
+        });
+      }
+
+      // Show in-progress tasks
+      if (inProgressTasks.length > 0) {
+        message += '\n\n🔄 *IN PROGRESS:*\n';
+        inProgressTasks.forEach((task, idx) => {
+          const categoryEmoji = task.category === 'work' ? '💼' : task.category === 'learn' ? '📚' : '🧘';
+          message += `\n${idx + 1}. ${categoryEmoji} *${task.title}*`;
+        });
+      }
+
+      // Show completed tasks
+      if (completedTasks.length > 0) {
+        message += '\n\n✅ *COMPLETED:*\n';
+        completedTasks.forEach((task, idx) => {
+          message += `\n${idx + 1}. ~~${task.title}~~`;
+        });
+      }
+
+      message += '\n\n💪 Keep up the great work!';
+
+      await bot.sendMessage(chatId, message, { 
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [[
+            { text: '➕ Add Task', callback_data: 'cmd_addtask' },
+            { text: '🔄 Refresh', callback_data: 'cmd_today' }
+          ]]
+        }
+      });
+
+    } catch (error) {
+      console.error('Error in today command:', error);
+      await bot.sendMessage(chatId, '❌ Error fetching tasks. Please try again.');
+    }
+  });
+
   // Handle polling errors
   bot.on('polling_error', (error) => {
     console.error('Telegram Bot polling error:', error.message);
   });
 
-  // Handle any message (optional - for future expansion)
+  // Global message handler for state-based interactions
   bot.on('message', async (msg) => {
-    // Log all messages for monitoring
-    console.log(`📨 Message from ${msg.from.username || msg.from.first_name}: ${msg.text}`);
+    const chatId = msg.chat.id;
+    const text = msg.text;
+
+    console.log(`📨 Message received from ${msg.from.username || msg.from.first_name} (${chatId}): ${text}`);
+
+    // Skip if it's a command
+    if (text && text.startsWith('/')) {
+      console.log(`⏭️  Skipping command: ${text}`);
+      return;
+    }
+
+    // Check if user has a pending state
+    const userState = userStates.get(chatId);
+    console.log(`🔍 User state for ${chatId}:`, userState);
+    
+    if (!userState) {
+      console.log(`ℹ️  No pending state for user ${chatId}`);
+      return;
+    }
+
+    // Handle based on state
+    if (userState.action === 'awaiting_task_input') {
+      console.log(`✅ Processing task input for user ${chatId}`);
+      await handleTaskInput(chatId, text, userState.userId, userState.userName);
+      userStates.delete(chatId);
+      console.log(`🗑️  State cleared for user ${chatId}`);
+    } else if (userState.action === 'awaiting_password') {
+      // This is handled by the one-time handler in /login
+      // Don't interfere
+      console.log(`🔐 Awaiting password, skipping...`);
+      return;
+    }
   });
 
   console.log('✅ Telegram Bot command handlers registered');
+};
+
+// Helper function to handle task input
+const handleTaskInput = async (chatId, input, userId, userName) => {
+  try {
+    console.log(`🔧 handleTaskInput called for user ${userId} (${userName})`);
+    console.log(`📝 Input: "${input}"`);
+    
+    const parts = input.split('|').map(p => p.trim());
+    console.log(`📋 Parts:`, parts);
+
+    const title = parts[0];
+    const description = parts[1] || '';
+    const priority = parts[2] || 'medium';
+    const category = parts[3] || 'work';
+    const timeStart = parts[4] || null;
+    const timeEnd = parts[5] || null;
+
+    console.log(`📌 Parsed - Title: "${title}", Desc: "${description}", Priority: "${priority}", Category: "${category}", TimeStart: "${timeStart}", TimeEnd: "${timeEnd}"`);
+
+    // Validate priority
+    const validPriorities = ['high', 'medium', 'low'];
+    const finalPriority = validPriorities.includes(priority.toLowerCase()) ? priority.toLowerCase() : 'medium';
+
+    // Validate category - sesuai dengan database constraint
+    const validCategories = ['work', 'learn', 'rest'];
+    const finalCategory = validCategories.includes(category.toLowerCase()) ? category.toLowerCase() : 'work';
+
+    // Validate time format (HH:MM)
+    const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
+    const finalTimeStart = timeStart && timeRegex.test(timeStart) ? timeStart : null;
+    const finalTimeEnd = timeEnd && timeRegex.test(timeEnd) ? timeEnd : null;
+
+    console.log(`✅ Validated - Priority: "${finalPriority}", Category: "${finalCategory}", TimeStart: "${finalTimeStart}", TimeEnd: "${finalTimeEnd}"`);
+
+    if (!title) {
+      console.log(`❌ Title is empty!`);
+      await bot.sendMessage(chatId,
+        '❌ Task title is required! Please try /addtask again.',
+        { parse_mode: 'Markdown' }
+      );
+      return;
+    }
+
+    // Check if time_start is provided (required for reminders)
+    if (!finalTimeStart) {
+      console.log(`⚠️ No valid time_start provided`);
+      await bot.sendMessage(chatId,
+        '⚠️ *Time Start Required for Reminders*\n\n' +
+        'Please include start time in format HH:MM (24-hour format)\n\n' +
+        '*Example:*\n' +
+        '\`Meeting | Discuss project | high | work | 09:00 | 10:00\`\n' +
+        '\`Study | Learn Python | medium | learn | 14:30 | 16:00\`\n\n' +
+        'Try again with /addtask',
+        { parse_mode: 'Markdown' }
+      );
+      return;
+    }
+
+    // Import uuid
+    const { v4: uuidv4 } = await import('uuid');
+    const taskId = uuidv4();
+    console.log(`🆔 Generated task ID: ${taskId}`);
+
+    const client = await pool.connect();
+    console.log(`🔌 Database connected`);
+
+    // Insert task
+    const insertResult = await client.query(`
+      INSERT INTO tasks (id, user_id, title, description, status, priority, category, time_start, time_end, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      RETURNING *
+    `, [taskId, userId, title, description, 'pending', finalPriority, finalCategory, finalTimeStart, finalTimeEnd]);
+
+    console.log(`💾 Task inserted:`, insertResult.rows[0]);
+
+    const task = insertResult.rows[0];
+
+    // Schedule reminders for the new task
+    try {
+      const reminderService = await import('../services/reminderService.js');
+      await reminderService.scheduleRemindersForTask({
+        ...task,
+        time_start: finalTimeStart
+      });
+      console.log(`⏰ Reminders scheduled for task ${taskId}`);
+    } catch (reminderError) {
+      console.error('⚠️ Failed to schedule reminders:', reminderError);
+      // Continue even if reminder scheduling fails
+    }
+
+    client.release();
+    console.log(`🔌 Database connection released`);
+
+    const emoji = finalPriority === 'high' ? '🔴' : finalPriority === 'medium' ? '🟡' : '🟢';
+    const categoryEmoji = finalCategory === 'work' ? '💼' : finalCategory === 'learn' ? '📚' : '🧘';
+
+    const successMessage = `
+✅ *Task Added Successfully!*
+
+${categoryEmoji} *${task.title}*
+${task.description ? `_${task.description}_\n` : ''}
+${emoji} *Priority:* ${finalPriority.toUpperCase()}
+📁 *Category:* ${finalCategory}
+🕐 *Time:* ${finalTimeStart}${finalTimeEnd ? ` - ${finalTimeEnd}` : ''}
+📊 *Status:* Pending
+⏰ *Reminders:* Scheduled
+
+Your task has been created and reminders are set! 🎉
+
+Use /today to see all your tasks for today.
+    `;
+
+    console.log(`📤 Sending success message...`);
+    await bot.sendMessage(chatId, successMessage, { 
+      parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: [[
+          { text: '➕ Add Another Task', callback_data: 'cmd_addtask' },
+          { text: '📅 View Today\'s Tasks', callback_data: 'cmd_today' }
+        ]]
+      }
+    });
+    console.log(`✅ Success message sent!`);
+
+  } catch (error) {
+    console.error('❌ Error creating task:', error);
+    console.error('Stack trace:', error.stack);
+    await bot.sendMessage(chatId,
+      `❌ Failed to create task: ${error.message}\n\nPlease try again.`,
+      { parse_mode: 'Markdown' }
+    );
+  }
 };
 
 // Send task reminder notification
