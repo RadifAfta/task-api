@@ -63,15 +63,14 @@ const setupBotCommands = async () => {
       { command: 'start', description: '🌟 Welcome message & setup guide' },
       { command: 'login', description: '🔐 Login with email & password' },
       { command: 'verify', description: '✅ Verify with code from app' },
-      { command: 'status', description: '📊 Check connection & settings' },
-      { command: 'addtask', description: '➕ Add new task' },
-      { command: 'edittask', description: '✏️ Edit existing task' },
-      { command: 'deletetask', description: '🗑️ Delete task' },
+      { command: 'quick', description: '⚡ Quick task actions' },
+      { command: 'quickadd', description: '➕ Quick add (no symbols!)' },
+      { command: 'addtask', description: '📝 Add task (advanced format)' },
+      { command: 'mytasks', description: '📋 My tasks with actions' },
       { command: 'today', description: '📅 View today\'s tasks' },
+      { command: 'complete', description: '✅ Mark task as done' },
       { command: 'myroutines', description: '📋 View my routines' },
-      { command: 'createroutine', description: '✨ Create new routine template' },
-      { command: 'generateroutine', description: '🔄 Generate daily routine' },
-      { command: 'help', description: '📚 Show help & commands' },
+      { command: 'status', description: '� Check connection & settings' },
       { command: 'menu', description: '📋 Show command menu' }
     ]);
     
@@ -201,6 +200,7 @@ Use the buttons below for quick access! 👇
     });
   });
 
+  /* COMMENTED OUT - Replaced by new callback handler below
   // Handle callback queries from inline buttons
   bot.on('callback_query', async (query) => {
     const chatId = query.message.chat.id;
@@ -814,6 +814,7 @@ Your daily tasks are ready! 🎉
       await bot.sendMessage(chatId, '❌ An error occurred. Please try again.');
     }
   });
+  END OF OLD CALLBACK HANDLER */
 
   // /login command - Login and generate code directly from Telegram
   bot.onText(/\/login (.+)/, async (msg, match) => {
@@ -1285,6 +1286,58 @@ Please send your task details in this format:
     }
   });
 
+  // /quickadd command - Interactive task creation (NO SYMBOLS NEEDED!)
+  bot.onText(/\/quickadd/, async (msg) => {
+    const chatId = msg.chat.id;
+
+    console.log(`➕ /quickadd command received from ${msg.from.username || msg.from.first_name} (${chatId})`);
+
+    try {
+      const client = await pool.connect();
+
+      const result = await client.query(`
+        SELECT utc.user_id, u.name
+        FROM user_telegram_config utc
+        JOIN users u ON utc.user_id = u.id
+        WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
+      `, [chatId]);
+
+      client.release();
+
+      if (result.rows.length === 0) {
+        await bot.sendMessage(chatId,
+          '❌ Please connect first using /login or /verify',
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+
+      const user = result.rows[0];
+
+      // Set state for interactive input
+      userStates.set(chatId, {
+        action: 'awaiting_interactive_task',
+        step: 'title',
+        userId: user.user_id,
+        userName: user.name,
+        taskData: {}
+      });
+
+      await bot.sendMessage(chatId,
+        '➕ *Quick Add Task* (Interactive Mode)\n\n' +
+        '📝 *Step 1/6:* What is the task title?\n\n' +
+        'Just type the task name, no symbols needed!\n\n' +
+        '*Example:* Team Meeting\n\n' +
+        'Or /cancel to abort.',
+        { parse_mode: 'Markdown' }
+      );
+
+    } catch (error) {
+      console.error('Error in quickadd command:', error);
+      await bot.sendMessage(chatId, '❌ Error. Please try again.');
+    }
+  });
+
   // /today command - View today's tasks
   bot.onText(/\/today/, async (msg) => {
     const chatId = msg.chat.id;
@@ -1416,6 +1469,290 @@ Please send your task details in this format:
     } catch (error) {
       console.error('Error in today command:', error);
       await bot.sendMessage(chatId, '❌ Error fetching tasks. Please try again.');
+    }
+  });
+
+  // /mytasks command - My tasks with quick actions (OPTIMIZED)
+  bot.onText(/\/mytasks/, async (msg) => {
+    const chatId = msg.chat.id;
+
+    try {
+      const client = await pool.connect();
+
+      // Check if user is verified
+      const result = await client.query(`
+        SELECT utc.user_id, u.name
+        FROM user_telegram_config utc
+        JOIN users u ON utc.user_id = u.id
+        WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
+      `, [chatId]);
+
+      if (result.rows.length === 0) {
+        client.release();
+        await bot.sendMessage(chatId,
+          '❌ *Not Connected*\n\n' +
+          'Please connect your Telegram account first using /verify or /login',
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+
+      const user = result.rows[0];
+
+      // Get active tasks (not completed)
+      const tasksResult = await client.query(`
+        SELECT * FROM tasks
+        WHERE user_id = $1
+        AND status != 'done'
+        ORDER BY 
+          CASE priority
+            WHEN 'high' THEN 1
+            WHEN 'medium' THEN 2
+            WHEN 'low' THEN 3
+          END,
+          time_start ASC NULLS LAST,
+          created_at DESC
+        LIMIT 15
+      `, [user.user_id]);
+
+      client.release();
+
+      const tasks = tasksResult.rows;
+
+      if (tasks.length === 0) {
+        await bot.sendMessage(chatId,
+          '📋 *My Tasks*\n\n' +
+          '✨ No active tasks!\n\n' +
+          'Tap button below to add your first task.',
+          { 
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [[
+                { text: '➕ Add New Task', callback_data: 'cmd_addtask' }
+              ]]
+            }
+          }
+        );
+        return;
+      }
+
+      // Send each task with action buttons
+      const intro = `📋 *My Active Tasks* (${tasks.length})\n\n` +
+                   `Tap action buttons below each task:\n` +
+                   `✅ Complete | ✏️ Edit | 🗑️ Delete`;
+
+      await bot.sendMessage(chatId, intro, { parse_mode: 'Markdown' });
+
+      // Send individual task cards with buttons
+      for (const task of tasks.slice(0, 10)) { // Limit to 10 to avoid spam
+        const emoji = task.priority === 'high' ? '🔴' : task.priority === 'medium' ? '🟡' : '🟢';
+        const categoryEmoji = task.category === 'work' ? '💼' : task.category === 'learn' ? '📚' : '🧘';
+        const statusEmoji = task.status === 'in_progress' ? '🔄' : '📋';
+        const timeInfo = task.time_start ? `⏰ ${task.time_start}${task.time_end ? `-${task.time_end}` : ''}` : '';
+
+        const taskMessage = `
+${statusEmoji} ${emoji} ${categoryEmoji} *${task.title}*
+${task.description ? `_${task.description.substring(0, 80)}${task.description.length > 80 ? '...' : ''}_\n` : ''}
+📊 ${task.priority} | 📁 ${task.category}${timeInfo ? ` | ${timeInfo}` : ''}
+        `.trim();
+
+        const keyboard = {
+          inline_keyboard: [[
+            { text: '✅ Done', callback_data: `task_complete_${task.id}` },
+            { text: '✏️ Edit', callback_data: `task_edit_${task.id}` },
+            { text: '🗑️ Delete', callback_data: `task_delete_${task.id}` }
+          ]]
+        };
+
+        await bot.sendMessage(chatId, taskMessage, {
+          parse_mode: 'Markdown',
+          reply_markup: keyboard
+        });
+      }
+
+      if (tasks.length > 10) {
+        await bot.sendMessage(chatId, 
+          `_... and ${tasks.length - 10} more tasks_\n\n` +
+          `Use /today to see all tasks`,
+          { parse_mode: 'Markdown' }
+        );
+      }
+
+    } catch (error) {
+      console.error('Error in mytasks command:', error);
+      await bot.sendMessage(chatId, '❌ Error fetching tasks. Please try again.');
+    }
+  });
+
+  // /quick command - Quick task actions menu (OPTIMIZED)
+  bot.onText(/\/quick/, async (msg) => {
+    const chatId = msg.chat.id;
+
+    try {
+      const client = await pool.connect();
+
+      // Check if user is verified
+      const result = await client.query(`
+        SELECT utc.user_id, u.name
+        FROM user_telegram_config utc
+        JOIN users u ON utc.user_id = u.id
+        WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
+      `, [chatId]);
+
+      if (result.rows.length === 0) {
+        client.release();
+        await bot.sendMessage(chatId,
+          '❌ Please connect first using /login or /verify',
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+
+      const user = result.rows[0];
+
+      // Get pending tasks count
+      const countResult = await client.query(`
+        SELECT 
+          COUNT(*) FILTER (WHERE status = 'pending') as pending,
+          COUNT(*) FILTER (WHERE status = 'in_progress') as in_progress,
+          COUNT(*) FILTER (WHERE status = 'done' AND DATE(updated_at) = CURRENT_DATE) as done_today
+        FROM tasks
+        WHERE user_id = $1
+      `, [user.user_id]);
+
+      client.release();
+
+      const counts = countResult.rows[0];
+
+      const message = `
+⚡ *Quick Actions*
+
+*Your Tasks Today:*
+📋 Pending: ${counts.pending}
+🔄 In Progress: ${counts.in_progress}
+✅ Completed: ${counts.done_today}
+
+*What would you like to do?*
+      `;
+
+      const keyboard = {
+        inline_keyboard: [
+          [
+            { text: '➕ Add Task', callback_data: 'cmd_addtask' },
+            { text: '📋 My Tasks', callback_data: 'cmd_mytasks' }
+          ],
+          [
+            { text: '✅ Complete Task', callback_data: 'cmd_complete' },
+            { text: '📅 Today\'s View', callback_data: 'cmd_today' }
+          ],
+          [
+            { text: '📊 Task Templates', callback_data: 'show_templates' },
+            { text: '🔄 Routines', callback_data: 'cmd_myroutines' }
+          ]
+        ]
+      };
+
+      await bot.sendMessage(chatId, message, {
+        parse_mode: 'Markdown',
+        reply_markup: keyboard
+      });
+
+    } catch (error) {
+      console.error('Error in quick command:', error);
+      await bot.sendMessage(chatId, '❌ Error. Please try again.');
+    }
+  });
+
+  // /complete command - Quick complete task (OPTIMIZED)
+  bot.onText(/\/complete(?:\s+(.+))?/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const taskId = match[1]?.trim();
+
+    try {
+      const client = await pool.connect();
+
+      // Check if user is verified
+      const result = await client.query(`
+        SELECT utc.user_id, u.name
+        FROM user_telegram_config utc
+        JOIN users u ON utc.user_id = u.id
+        WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
+      `, [chatId]);
+
+      if (result.rows.length === 0) {
+        client.release();
+        await bot.sendMessage(chatId, '❌ Please connect first using /login or /verify');
+        return;
+      }
+
+      const user = result.rows[0];
+
+      // If no task ID, show incomplete tasks
+      if (!taskId) {
+        const tasksResult = await client.query(`
+          SELECT id, title, priority, category, time_start, status
+          FROM tasks
+          WHERE user_id = $1 AND status != 'done'
+          ORDER BY 
+            CASE priority WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 END,
+            time_start ASC NULLS LAST
+          LIMIT 10
+        `, [user.user_id]);
+
+        client.release();
+
+        if (tasksResult.rows.length === 0) {
+          await bot.sendMessage(chatId,
+            '✅ *All Done!*\n\nYou have no pending tasks.',
+            { parse_mode: 'Markdown' }
+          );
+          return;
+        }
+
+        let message = '✅ *Mark as Complete*\n\nSelect a task:\n\n';
+
+        const buttons = tasksResult.rows.map(task => {
+          const emoji = task.priority === 'high' ? '🔴' : task.priority === 'medium' ? '🟡' : '🟢';
+          const timeInfo = task.time_start ? ` ${task.time_start}` : '';
+          return [{
+            text: `${emoji} ${task.title}${timeInfo}`,
+            callback_data: `task_complete_${task.id}`
+          }];
+        });
+
+        await bot.sendMessage(chatId, message, {
+          parse_mode: 'Markdown',
+          reply_markup: { inline_keyboard: buttons }
+        });
+        return;
+      }
+
+      // Mark specific task as complete
+      const updateResult = await client.query(`
+        UPDATE tasks
+        SET status = 'done', updated_at = CURRENT_TIMESTAMP
+        WHERE id = $1 AND user_id = $2
+        RETURNING *
+      `, [taskId, user.user_id]);
+
+      client.release();
+
+      if (updateResult.rows.length === 0) {
+        await bot.sendMessage(chatId, '❌ Task not found');
+        return;
+      }
+
+      const task = updateResult.rows[0];
+      await bot.sendMessage(chatId,
+        `✅ *Task Completed!*\n\n` +
+        `~~${task.title}~~\n\n` +
+        `Great job! 🎉`,
+        { parse_mode: 'Markdown' }
+      );
+
+    } catch (error) {
+      console.error('Error in complete command:', error);
+      await bot.sendMessage(chatId, '❌ Error. Please try again.');
     }
   });
 
@@ -2108,6 +2445,243 @@ Send your task info now, or /cancel to abort.
     await bot.sendMessage(chatId, '✅ Operation cancelled.');
   });
 
+  // Callback query handler for inline buttons
+  bot.on('callback_query', async (callbackQuery) => {
+    const chatId = callbackQuery.message.chat.id;
+    const messageId = callbackQuery.message.message_id;
+    const data = callbackQuery.data;
+
+    console.log(`🔘 Callback query from ${callbackQuery.from.username || callbackQuery.from.first_name}: ${data}`);
+
+    try {
+      // Answer callback query to remove loading state
+      await bot.answerCallbackQuery(callbackQuery.id);
+
+      // Handle different callback data patterns
+      if (data === 'cmd_status') {
+        // Execute /status command directly - forward to command
+        // Simulate command execution by creating proper message object
+        const fakeMsg = {
+          chat: { id: chatId },
+          from: callbackQuery.from,
+          message_id: Date.now()
+        };
+        // Manually trigger the status command logic
+        // Find and execute status command handler
+        bot.processUpdate({
+          update_id: Date.now(),
+          message: {
+            ...fakeMsg,
+            date: Math.floor(Date.now() / 1000),
+            text: '/status'
+          }
+        });
+      } else if (data === 'cmd_addtask') {
+        // Execute /addtask command directly
+        const fakeMsg = {
+          chat: { id: chatId },
+          from: callbackQuery.from,
+          message_id: Date.now()
+        };
+        bot.processUpdate({
+          update_id: Date.now(),
+          message: {
+            ...fakeMsg,
+            date: Math.floor(Date.now() / 1000),
+            text: '/addtask'
+          }
+        });
+      } else if (data === 'cmd_mytasks') {
+        // Execute /mytasks command directly
+        const fakeMsg = {
+          chat: { id: chatId },
+          from: callbackQuery.from,
+          message_id: Date.now()
+        };
+        bot.processUpdate({
+          update_id: Date.now(),
+          message: {
+            ...fakeMsg,
+            date: Math.floor(Date.now() / 1000),
+            text: '/mytasks'
+          }
+        });
+      } else if (data === 'cmd_today') {
+        // Execute /today command directly
+        const fakeMsg = {
+          chat: { id: chatId },
+          from: callbackQuery.from,
+          message_id: Date.now()
+        };
+        bot.processUpdate({
+          update_id: Date.now(),
+          message: {
+            ...fakeMsg,
+            date: Math.floor(Date.now() / 1000),
+            text: '/today'
+          }
+        });
+      } else if (data === 'cmd_complete') {
+        // Execute /complete command directly
+        const fakeMsg = {
+          chat: { id: chatId },
+          from: callbackQuery.from,
+          message_id: Date.now()
+        };
+        bot.processUpdate({
+          update_id: Date.now(),
+          message: {
+            ...fakeMsg,
+            date: Math.floor(Date.now() / 1000),
+            text: '/complete'
+          }
+        });
+      } else if (data === 'cmd_help') {
+        // Execute /help command directly
+        const fakeMsg = {
+          chat: { id: chatId },
+          from: callbackQuery.from,
+          message_id: Date.now()
+        };
+        bot.processUpdate({
+          update_id: Date.now(),
+          message: {
+            ...fakeMsg,
+            date: Math.floor(Date.now() / 1000),
+            text: '/help'
+          }
+        });
+      } else if (data === 'cmd_menu') {
+        // Execute /menu command directly
+        const fakeMsg = {
+          chat: { id: chatId },
+          from: callbackQuery.from,
+          message_id: Date.now()
+        };
+        bot.processUpdate({
+          update_id: Date.now(),
+          message: {
+            ...fakeMsg,
+            date: Math.floor(Date.now() / 1000),
+            text: '/menu'
+          }
+        });
+      } else if (data === 'cmd_myroutines') {
+        // Execute /myroutines command directly
+        const fakeMsg = {
+          chat: { id: chatId },
+          from: callbackQuery.from,
+          message_id: Date.now()
+        };
+        bot.processUpdate({
+          update_id: Date.now(),
+          message: {
+            ...fakeMsg,
+            date: Math.floor(Date.now() / 1000),
+            text: '/myroutines'
+          }
+        });
+      } else if (data === 'cmd_edittask') {
+        // Execute /edittask command directly
+        const fakeMsg = {
+          chat: { id: chatId },
+          from: callbackQuery.from,
+          message_id: Date.now()
+        };
+        bot.processUpdate({
+          update_id: Date.now(),
+          message: {
+            ...fakeMsg,
+            date: Math.floor(Date.now() / 1000),
+            text: '/edittask'
+          }
+        });
+      } else if (data === 'cmd_deletetask') {
+        // Execute /deletetask command directly
+        const fakeMsg = {
+          chat: { id: chatId },
+          from: callbackQuery.from,
+          message_id: Date.now()
+        };
+        bot.processUpdate({
+          update_id: Date.now(),
+          message: {
+            ...fakeMsg,
+            date: Math.floor(Date.now() / 1000),
+            text: '/deletetask'
+          }
+        });
+      } else if (data === 'generate_all_routines') {
+        // Generate all active routines
+        await handleGenerateAllRoutines(chatId);
+      } else if (data.startsWith('add_task_routine_')) {
+        // Add task to specific routine
+        const routineId = data.replace('add_task_routine_', '');
+        const fakeMsg = {
+          chat: { id: chatId },
+          from: callbackQuery.from,
+          message_id: Date.now()
+        };
+        bot.processUpdate({
+          update_id: Date.now(),
+          message: {
+            ...fakeMsg,
+            date: Math.floor(Date.now() / 1000),
+            text: `/addtasktoroutine ${routineId}`
+          }
+        });
+      } else if (data.startsWith('task_complete_')) {
+        // Mark task as complete
+        const taskId = data.replace('task_complete_', '');
+        await handleTaskComplete(chatId, taskId);
+      } else if (data.startsWith('task_edit_')) {
+        // Edit task
+        const taskId = data.replace('task_edit_', '');
+        await handleTaskEditStart(chatId, taskId);
+      } else if (data.startsWith('task_delete_')) {
+        // Delete task with confirmation
+        const taskId = data.replace('task_delete_', '');
+        await handleTaskDeleteConfirm(chatId, messageId, taskId);
+      } else if (data.startsWith('confirm_delete_')) {
+        // Confirm delete
+        const taskId = data.replace('confirm_delete_', '');
+        await handleTaskDeleteExecute(chatId, messageId, taskId);
+      } else if (data.startsWith('cancel_delete_')) {
+        // Cancel delete
+        await bot.editMessageText('❌ Delete cancelled.', {
+          chat_id: chatId,
+          message_id: messageId
+        });
+      } else if (data === 'show_templates') {
+        // Show task templates
+        await showTaskTemplates(chatId);
+      } else if (data.startsWith('template_')) {
+        // Use task template
+        const templateType = data.replace('template_', '');
+        await useTaskTemplate(chatId, templateType);
+      } else if (data.startsWith('priority_')) {
+        // Handle priority selection in interactive mode
+        const priority = data.replace('priority_', '');
+        await handlePrioritySelection(chatId, priority);
+      } else if (data.startsWith('category_')) {
+        // Handle category selection in interactive mode
+        const category = data.replace('category_', '');
+        await handleCategorySelection(chatId, category);
+      } else {
+        // Unknown callback data
+        console.log(`⚠️ Unknown callback data: ${data}`);
+        await bot.answerCallbackQuery(callbackQuery.id, {
+          text: '❌ Unknown action',
+          show_alert: false
+        });
+      }
+
+    } catch (error) {
+      console.error('Error handling callback query:', error);
+      await bot.sendMessage(chatId, '❌ An error occurred. Please try again.');
+    }
+  });
+
   // Handle polling errors
   bot.on('polling_error', (error) => {
     console.error('Telegram Bot polling error:', error.message);
@@ -2141,6 +2715,10 @@ Send your task info now, or /cancel to abort.
       await handleTaskInput(chatId, text, userState.userId, userState.userName);
       userStates.delete(chatId);
       console.log(`🗑️  State cleared for user ${chatId}`);
+    } else if (userState.action === 'awaiting_interactive_task') {
+      console.log(`✅ Processing interactive task input - step: ${userState.step}`);
+      await handleInteractiveTaskInput(chatId, text, userState);
+      // State will be managed by handler
     } else if (userState.action === 'awaiting_task_edit') {
       console.log(`✅ Processing task edit for user ${chatId}`);
       await handleTaskEdit(chatId, text, userState.userId, userState.taskId, userState.currentTask);
@@ -2165,6 +2743,689 @@ Send your task info now, or /cancel to abort.
   });
 
   console.log('✅ Telegram Bot command handlers registered');
+};
+
+// Helper function for marking task as complete
+const handleTaskComplete = async (chatId, taskId) => {
+  try {
+    const client = await pool.connect();
+
+    // Get user info
+    const userResult = await client.query(`
+      SELECT utc.user_id, u.name
+      FROM user_telegram_config utc
+      JOIN users u ON utc.user_id = u.id
+      WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
+    `, [chatId]);
+
+    if (userResult.rows.length === 0) {
+      client.release();
+      await bot.sendMessage(chatId, '❌ Please connect first using /login');
+      return;
+    }
+
+    const user = userResult.rows[0];
+
+    // Update task status
+    const updateResult = await client.query(`
+      UPDATE tasks
+      SET status = 'done', updated_at = CURRENT_TIMESTAMP
+      WHERE id = $1 AND user_id = $2
+      RETURNING *
+    `, [taskId, user.user_id]);
+
+    client.release();
+
+    if (updateResult.rows.length === 0) {
+      await bot.sendMessage(chatId, '❌ Task not found');
+      return;
+    }
+
+    const task = updateResult.rows[0];
+    await bot.sendMessage(chatId,
+      `✅ *Task Completed!*\n\n` +
+      `~~${task.title}~~\n\n` +
+      `Great job! Keep up the momentum! 🎉`,
+      { parse_mode: 'Markdown' }
+    );
+
+  } catch (error) {
+    console.error('Error completing task:', error);
+    await bot.sendMessage(chatId, '❌ Error completing task');
+  }
+};
+
+// Helper function to start task edit
+const handleTaskEditStart = async (chatId, taskId) => {
+  try {
+    const client = await pool.connect();
+
+    // Get user info
+    const userResult = await client.query(`
+      SELECT utc.user_id, u.name
+      FROM user_telegram_config utc
+      JOIN users u ON utc.user_id = u.id
+      WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
+    `, [chatId]);
+
+    if (userResult.rows.length === 0) {
+      client.release();
+      await bot.sendMessage(chatId, '❌ Please connect first using /login');
+      return;
+    }
+
+    const user = userResult.rows[0];
+
+    // Get task
+    const taskResult = await client.query(`
+      SELECT * FROM tasks
+      WHERE id = $1 AND user_id = $2
+    `, [taskId, user.user_id]);
+
+    client.release();
+
+    if (taskResult.rows.length === 0) {
+      await bot.sendMessage(chatId, '❌ Task not found');
+      return;
+    }
+
+    const task = taskResult.rows[0];
+
+    // Set edit state
+    userStates.set(chatId, {
+      action: 'awaiting_task_edit',
+      userId: user.user_id,
+      taskId: taskId,
+      currentTask: task
+    });
+
+    const message = `
+✏️ *Edit Task*
+
+*Current Task:*
+📝 *Title:* ${task.title}
+📄 *Description:* ${task.description || '(none)'}
+📊 *Priority:* ${task.priority}
+📁 *Category:* ${task.category}
+⏰ *Time:* ${task.time_start || '(none)'}${task.time_end ? ` - ${task.time_end}` : ''}
+📊 *Status:* ${task.status}
+
+*How to edit:*
+Send the new task details in this format:
+\`Title | Desc | Priority | Category | TimeStart | TimeEnd | Status\`
+
+*Example:*
+\`${task.title} | ${task.description || 'Updated description'} | high | work | 09:00 | 10:00 | in_progress\`
+
+💡 *Tip:* You can leave any field unchanged by using the current value, or use "-" to keep it as is.
+
+Send your edit now, or /cancel to abort.
+    `;
+
+    await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+
+  } catch (error) {
+    console.error('Error starting task edit:', error);
+    await bot.sendMessage(chatId, '❌ Error starting edit');
+  }
+};
+
+// Helper function to show delete confirmation
+const handleTaskDeleteConfirm = async (chatId, messageId, taskId) => {
+  try {
+    const client = await pool.connect();
+
+    // Get user info
+    const userResult = await client.query(`
+      SELECT utc.user_id, u.name
+      FROM user_telegram_config utc
+      JOIN users u ON utc.user_id = u.id
+      WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
+    `, [chatId]);
+
+    if (userResult.rows.length === 0) {
+      client.release();
+      await bot.sendMessage(chatId, '❌ Please connect first using /login');
+      return;
+    }
+
+    const user = userResult.rows[0];
+
+    // Get task
+    const taskResult = await client.query(`
+      SELECT * FROM tasks
+      WHERE id = $1 AND user_id = $2
+    `, [taskId, user.user_id]);
+
+    client.release();
+
+    if (taskResult.rows.length === 0) {
+      await bot.sendMessage(chatId, '❌ Task not found');
+      return;
+    }
+
+    const task = taskResult.rows[0];
+
+    const confirmMessage = `
+⚠️ *Confirm Delete*
+
+Are you sure you want to delete this task?
+
+*${task.title}*
+${task.description ? `_${task.description.substring(0, 50)}..._` : ''}
+
+This action cannot be undone!
+    `;
+
+    const keyboard = {
+      inline_keyboard: [[
+        { text: '✅ Yes, Delete', callback_data: `confirm_delete_${taskId}` },
+        { text: '❌ Cancel', callback_data: `cancel_delete_${taskId}` }
+      ]]
+    };
+
+    await bot.editMessageText(confirmMessage, {
+      chat_id: chatId,
+      message_id: messageId,
+      parse_mode: 'Markdown',
+      reply_markup: keyboard
+    });
+
+  } catch (error) {
+    console.error('Error showing delete confirmation:', error);
+    await bot.sendMessage(chatId, '❌ Error processing delete');
+  }
+};
+
+// Helper function to execute task deletion
+const handleTaskDeleteExecute = async (chatId, messageId, taskId) => {
+  try {
+    const client = await pool.connect();
+
+    // Get user info
+    const userResult = await client.query(`
+      SELECT utc.user_id, u.name
+      FROM user_telegram_config utc
+      JOIN users u ON utc.user_id = u.id
+      WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
+    `, [chatId]);
+
+    if (userResult.rows.length === 0) {
+      client.release();
+      await bot.sendMessage(chatId, '❌ Please connect first using /login');
+      return;
+    }
+
+    const user = userResult.rows[0];
+
+    // Get task for confirmation message
+    const taskResult = await client.query(`
+      SELECT * FROM tasks
+      WHERE id = $1 AND user_id = $2
+    `, [taskId, user.user_id]);
+
+    if (taskResult.rows.length === 0) {
+      client.release();
+      await bot.editMessageText('❌ Task not found', {
+        chat_id: chatId,
+        message_id: messageId
+      });
+      return;
+    }
+
+    const task = taskResult.rows[0];
+
+    // Delete associated reminders first
+    await client.query(`
+      DELETE FROM reminders WHERE task_id = $1
+    `, [taskId]);
+
+    // Delete task
+    await client.query(`
+      DELETE FROM tasks WHERE id = $1 AND user_id = $2
+    `, [taskId, user.user_id]);
+
+    client.release();
+
+    await bot.editMessageText(
+      `✅ *Task Deleted*\n\n~~${task.title}~~\n\nThe task and its reminders have been removed.`,
+      {
+        chat_id: chatId,
+        message_id: messageId,
+        parse_mode: 'Markdown'
+      }
+    );
+
+  } catch (error) {
+    console.error('Error deleting task:', error);
+    await bot.sendMessage(chatId, '❌ Error deleting task');
+  }
+};
+
+// Helper function to show task templates
+const showTaskTemplates = async (chatId) => {
+  const templates = [
+    { type: 'meeting', emoji: '👥', name: 'Meeting', desc: '1-hour meeting template' },
+    { type: 'study', emoji: '📚', name: 'Study Session', desc: '2-hour focused learning' },
+    { type: 'workout', emoji: '💪', name: 'Workout', desc: '1-hour exercise session' },
+    { type: 'break', emoji: '☕', name: 'Break', desc: '15-minute rest break' },
+    { type: 'meal', emoji: '🍽️', name: 'Meal Time', desc: '30-minute meal break' },
+    { type: 'review', emoji: '📝', name: 'Daily Review', desc: 'End of day review' }
+  ];
+
+  let message = '📋 *Task Templates*\n\nChoose a template to quickly add a task:\n\n';
+
+  const buttons = templates.map(t => [{
+    text: `${t.emoji} ${t.name}`,
+    callback_data: `template_${t.type}`
+  }]);
+
+  await bot.sendMessage(chatId, message, {
+    parse_mode: 'Markdown',
+    reply_markup: { inline_keyboard: buttons }
+  });
+};
+
+// Helper function to use task template
+const useTaskTemplate = async (chatId, templateType) => {
+  const templates = {
+    meeting: {
+      title: 'Team Meeting',
+      description: 'Weekly team sync meeting',
+      priority: 'high',
+      category: 'work',
+      duration: 60
+    },
+    study: {
+      title: 'Study Session',
+      description: 'Focused learning time',
+      priority: 'medium',
+      category: 'learn',
+      duration: 120
+    },
+    workout: {
+      title: 'Workout',
+      description: 'Exercise session',
+      priority: 'medium',
+      category: 'rest',
+      duration: 60
+    },
+    break: {
+      title: 'Break',
+      description: 'Short rest break',
+      priority: 'low',
+      category: 'rest',
+      duration: 15
+    },
+    meal: {
+      title: 'Meal Time',
+      description: 'Lunch/Dinner break',
+      priority: 'medium',
+      category: 'rest',
+      duration: 30
+    },
+    review: {
+      title: 'Daily Review',
+      description: 'Review today\'s tasks and plan tomorrow',
+      priority: 'medium',
+      category: 'work',
+      duration: 30
+    }
+  };
+
+  const template = templates[templateType];
+  if (!template) {
+    await bot.sendMessage(chatId, '❌ Template not found');
+    return;
+  }
+
+  // Calculate time (start now, end = now + duration)
+  const now = new Date();
+  const startTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  const endDate = new Date(now.getTime() + template.duration * 60000);
+  const endTime = `${String(endDate.getHours()).padStart(2, '0')}:${String(endDate.getMinutes()).padStart(2, '0')}`;
+
+  const message = `
+📋 *Using Template: ${template.title}*
+
+The following task will be created:
+
+📝 *Title:* ${template.title}
+📄 *Description:* ${template.description}
+📊 *Priority:* ${template.priority}
+📁 *Category:* ${template.category}
+⏰ *Time:* ${startTime} - ${endTime}
+
+To create this task, send:
+\`${template.title} | ${template.description} | ${template.priority} | ${template.category} | ${startTime} | ${endTime}\`
+
+Or customize it before sending!
+  `;
+
+  await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+};
+
+// Helper function for interactive task input (step-by-step)
+const handleInteractiveTaskInput = async (chatId, text, userState) => {
+  const { step, taskData, userId } = userState;
+
+  try {
+    switch (step) {
+      case 'title':
+        // Save title and ask for description
+        taskData.title = text.trim();
+        userState.step = 'description';
+        userStates.set(chatId, userState);
+
+        await bot.sendMessage(chatId,
+          '✅ Title saved!\n\n' +
+          '📝 *Step 2/6:* Add a description (optional)\n\n' +
+          'Type a brief description, or send "-" to skip.\n\n' +
+          '*Example:* Discuss Q4 goals and project updates',
+          { parse_mode: 'Markdown' }
+        );
+        break;
+
+      case 'description':
+        // Save description and ask for priority
+        taskData.description = text.trim() === '-' ? '' : text.trim();
+        userState.step = 'priority';
+        userStates.set(chatId, userState);
+
+        await bot.sendMessage(chatId,
+          '✅ Description saved!\n\n' +
+          '📊 *Step 3/6:* Select priority\n\n' +
+          'Choose task priority:',
+          { 
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [[
+                { text: '🔴 High', callback_data: 'priority_high' },
+                { text: '🟡 Medium', callback_data: 'priority_medium' },
+                { text: '🟢 Low', callback_data: 'priority_low' }
+              ]]
+            }
+          }
+        );
+        break;
+
+      case 'category':
+        // Save category and ask for time start
+        taskData.category = text.toLowerCase().trim();
+        userState.step = 'time_start';
+        userStates.set(chatId, userState);
+
+        await bot.sendMessage(chatId,
+          '✅ Category saved!\n\n' +
+          '⏰ *Step 5/6:* What time will you start?\n\n' +
+          'Enter start time in HH:MM format (24-hour)\n\n' +
+          '*Example:* 09:00 or 14:30\n\n' +
+          '⚠️ *Required for reminders!*',
+          { parse_mode: 'Markdown' }
+        );
+        break;
+
+      case 'time_start':
+        // Validate and save time start
+        const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
+        if (!timeRegex.test(text.trim())) {
+          await bot.sendMessage(chatId,
+            '❌ Invalid time format!\n\n' +
+            'Please use HH:MM format (24-hour)\n\n' +
+            '*Examples:* 09:00, 14:30, 23:45',
+            { parse_mode: 'Markdown' }
+          );
+          return;
+        }
+
+        taskData.time_start = text.trim();
+        userState.step = 'time_end';
+        userStates.set(chatId, userState);
+
+        await bot.sendMessage(chatId,
+          '✅ Start time saved!\n\n' +
+          '⏰ *Step 6/6:* When will it end? (optional)\n\n' +
+          'Enter end time in HH:MM format, or send "-" to skip.\n\n' +
+          '*Example:* 10:00',
+          { parse_mode: 'Markdown' }
+        );
+        break;
+
+      case 'time_end':
+        // Validate and save time end, then create task
+        if (text.trim() !== '-') {
+          const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
+          if (!timeRegex.test(text.trim())) {
+            await bot.sendMessage(chatId,
+              '❌ Invalid time format!\n\n' +
+              'Please use HH:MM format or send "-" to skip.',
+              { parse_mode: 'Markdown' }
+            );
+            return;
+          }
+          taskData.time_end = text.trim();
+        } else {
+          taskData.time_end = null;
+        }
+
+        // Create the task
+        await createTaskFromInteractive(chatId, taskData, userId);
+        userStates.delete(chatId);
+        break;
+
+      default:
+        await bot.sendMessage(chatId, '❌ Unknown step. Please start again with /quickadd');
+        userStates.delete(chatId);
+    }
+  } catch (error) {
+    console.error('Error in interactive task input:', error);
+    await bot.sendMessage(chatId, '❌ Error processing input. Please try /quickadd again.');
+    userStates.delete(chatId);
+  }
+};
+
+// Helper function to create task from interactive input
+const createTaskFromInteractive = async (chatId, taskData, userId) => {
+  try {
+    const { v4: uuidv4 } = await import('uuid');
+    const taskId = uuidv4();
+
+    const client = await pool.connect();
+
+    // Insert task
+    const insertResult = await client.query(`
+      INSERT INTO tasks (id, user_id, title, description, status, priority, category, time_start, time_end, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      RETURNING *
+    `, [
+      taskId,
+      userId,
+      taskData.title,
+      taskData.description || '',
+      'pending',
+      taskData.priority || 'medium',
+      taskData.category || 'work',
+      taskData.time_start,
+      taskData.time_end
+    ]);
+
+    const task = insertResult.rows[0];
+
+    // Schedule reminders
+    try {
+      const reminderService = await import('../services/reminderService.js');
+      await reminderService.scheduleRemindersForTask({
+        ...task,
+        time_start: taskData.time_start
+      });
+      console.log(`⏰ Reminders scheduled for task ${taskId}`);
+    } catch (reminderError) {
+      console.error('⚠️ Failed to schedule reminders:', reminderError);
+    }
+
+    client.release();
+
+    const emoji = taskData.priority === 'high' ? '🔴' : taskData.priority === 'medium' ? '🟡' : '🟢';
+    const categoryEmoji = taskData.category === 'work' ? '💼' : taskData.category === 'learn' ? '📚' : '🧘';
+
+    const successMessage = `
+✅ *Task Created Successfully!*
+
+${categoryEmoji} *${task.title}*
+${task.description ? `_${task.description}_\n` : ''}
+${emoji} *Priority:* ${task.priority.toUpperCase()}
+📁 *Category:* ${task.category}
+⏰ *Time:* ${task.time_start}${task.time_end ? ` - ${task.time_end}` : ''}
+⏰ *Reminders:* Scheduled
+
+*Quick Add completed!* 🎉
+
+Use /quickadd again to add another task, or /mytasks to view all tasks.
+    `;
+
+    await bot.sendMessage(chatId, successMessage, { parse_mode: 'Markdown' });
+
+  } catch (error) {
+    console.error('Error creating task from interactive input:', error);
+    await bot.sendMessage(chatId, '❌ Error creating task. Please try again.');
+  }
+};
+
+// Helper function to generate all routines
+const handleGenerateAllRoutines = async (chatId) => {
+  try {
+    const client = await pool.connect();
+
+    // Get user info
+    const userResult = await client.query(`
+      SELECT utc.user_id, u.name
+      FROM user_telegram_config utc
+      JOIN users u ON utc.user_id = u.id
+      WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
+    `, [chatId]);
+
+    if (userResult.rows.length === 0) {
+      client.release();
+      await bot.sendMessage(chatId, '❌ Please connect first using /login');
+      return;
+    }
+
+    const user = userResult.rows[0];
+
+    // Get all active routines
+    const routinesResult = await client.query(`
+      SELECT * FROM routine_templates
+      WHERE user_id = $1 AND is_active = true
+    `, [user.user_id]);
+
+    if (routinesResult.rows.length === 0) {
+      client.release();
+      await bot.sendMessage(chatId, '❌ No active routines found');
+      return;
+    }
+
+    let totalTasksGenerated = 0;
+    const routineNames = [];
+
+    // Generate tasks from each routine
+    for (const routine of routinesResult.rows) {
+      try {
+        // Import routine service
+        const routineService = await import('../services/routineService.js');
+        
+        // Generate tasks
+        const result = await routineService.generateDailyRoutine(user.user_id, routine.id);
+        
+        if (result.success) {
+          totalTasksGenerated += result.tasksGenerated || 0;
+          routineNames.push(routine.name);
+        }
+      } catch (error) {
+        console.error(`Error generating routine ${routine.name}:`, error);
+      }
+    }
+
+    client.release();
+
+    if (totalTasksGenerated === 0) {
+      await bot.sendMessage(chatId,
+        '⚠️ No new tasks generated.\n\nRoutines may have already been generated today.',
+        { parse_mode: 'Markdown' }
+      );
+      return;
+    }
+
+    await bot.sendMessage(chatId,
+      `✅ *All Routines Generated!*\n\n` +
+      `🗓️ Routines: ${routineNames.join(', ')}\n` +
+      `📋 *${totalTasksGenerated} tasks* added to your list\n\n` +
+      `Use /today to see your tasks!`,
+      { parse_mode: 'Markdown' }
+    );
+
+  } catch (error) {
+    console.error('Error generating all routines:', error);
+    await bot.sendMessage(chatId, '❌ Error generating routines');
+  }
+};
+
+// Helper function to handle priority selection
+const handlePrioritySelection = async (chatId, priority) => {
+  const userState = userStates.get(chatId);
+  
+  if (!userState || userState.action !== 'awaiting_interactive_task' || userState.step !== 'priority') {
+    await bot.sendMessage(chatId, '❌ Invalid state. Please start again with /quickadd');
+    return;
+  }
+
+  // Save priority and move to category
+  userState.taskData.priority = priority;
+  userState.step = 'category';
+  userStates.set(chatId, userState);
+
+  const priorityEmoji = priority === 'high' ? '🔴' : priority === 'medium' ? '🟡' : '🟢';
+
+  await bot.sendMessage(chatId,
+    `✅ Priority set to ${priorityEmoji} ${priority}!\n\n` +
+    '📁 *Step 4/6:* Select category\n\n' +
+    'Choose task category:',
+    { 
+      parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: [[
+          { text: '💼 Work', callback_data: 'category_work' },
+          { text: '📚 Learn', callback_data: 'category_learn' },
+          { text: '🧘 Rest', callback_data: 'category_rest' }
+        ]]
+      }
+    }
+  );
+};
+
+// Helper function to handle category selection
+const handleCategorySelection = async (chatId, category) => {
+  const userState = userStates.get(chatId);
+  
+  if (!userState || userState.action !== 'awaiting_interactive_task' || userState.step !== 'category') {
+    await bot.sendMessage(chatId, '❌ Invalid state. Please start again with /quickadd');
+    return;
+  }
+
+  // Save category and move to time_start
+  userState.taskData.category = category;
+  userState.step = 'time_start';
+  userStates.set(chatId, userState);
+
+  const categoryEmoji = category === 'work' ? '💼' : category === 'learn' ? '📚' : '🧘';
+
+  await bot.sendMessage(chatId,
+    `✅ Category set to ${categoryEmoji} ${category}!\n\n` +
+    '⏰ *Step 5/6:* What time will you start?\n\n' +
+    'Enter start time in HH:MM format (24-hour)\n\n' +
+    '*Example:* 09:00 or 14:30\n\n' +
+    '⚠️ *Required for reminders!*',
+    { parse_mode: 'Markdown' }
+  );
 };
 
 // Helper function to handle task input
