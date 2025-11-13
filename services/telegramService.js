@@ -64,7 +64,8 @@ const setupBotCommands = async () => {
       { command: 'login', description: '🔐 Login with email & password' },
       { command: 'verify', description: '✅ Verify with code from app' },
       { command: 'quick', description: '⚡ Quick task actions' },
-      { command: 'quickadd', description: '➕ Quick add (no symbols!)' },
+      { command: 'quickadd', description: '➕ Quick add task (no symbols!)' },
+      { command: 'quickroutine', description: '📋 Quick add routine (no symbols!)' },
       { command: 'addtask', description: '📝 Add task (advanced format)' },
       { command: 'mytasks', description: '📋 My tasks with actions' },
       { command: 'today', description: '📅 View today\'s tasks' },
@@ -2337,6 +2338,59 @@ Send your routine info now, or /cancel to abort.
     }
   });
 
+  // /quickroutine command - Interactive routine creation (NO SYMBOLS!)
+  bot.onText(/\/quickroutine/, async (msg) => {
+    const chatId = msg.chat.id;
+    
+    console.log(`📋 /quickroutine command received from ${msg.from.username || msg.from.first_name} (${chatId})`);
+
+    try {
+      const client = await pool.connect();
+
+      const result = await client.query(`
+        SELECT utc.user_id, u.name
+        FROM user_telegram_config utc
+        JOIN users u ON utc.user_id = u.id
+        WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
+      `, [chatId]);
+
+      client.release();
+
+      if (result.rows.length === 0) {
+        await bot.sendMessage(chatId,
+          '❌ Please connect first using /login or /verify',
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+
+      const user = result.rows[0];
+
+      // Set state for interactive routine creation
+      userStates.set(chatId, {
+        action: 'awaiting_interactive_routine',
+        step: 'name',
+        userId: user.user_id,
+        userName: user.name,
+        routineData: {},
+        tasks: []
+      });
+
+      await bot.sendMessage(chatId,
+        '📋 *Quick Create Routine* (Interactive Mode)\n\n' +
+        '📝 *Step 1/2:* What is the routine name?\n\n' +
+        'Just type the routine name, no symbols needed!\n\n' +
+        '*Example:* Morning Routine\n\n' +
+        'Or /cancel to abort.',
+        { parse_mode: 'Markdown' }
+      );
+
+    } catch (error) {
+      console.error('Error in quickroutine command:', error);
+      await bot.sendMessage(chatId, '❌ Error. Please try again.');
+    }
+  });
+
   // /addtasktoroutine command - Add task to routine template
   bot.onText(/\/addtasktoroutine\s+(.+)/, async (msg, match) => {
     const chatId = msg.chat.id;
@@ -2427,6 +2481,119 @@ Send your task info now, or /cancel to abort.
 
     } catch (error) {
       console.error('Error in addtasktoroutine command:', error);
+      await bot.sendMessage(chatId, '❌ Error. Please try again.');
+    }
+  });
+
+  // /quickaddtask command - Interactive add task to routine (NO SYMBOLS!)
+  bot.onText(/\/quickaddtask(?:\s+(.+))?/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const routineId = match[1]?.trim();
+    
+    console.log(`➕ /quickaddtask command received from ${msg.from.username || msg.from.first_name} (${chatId})`);
+
+    try {
+      const client = await pool.connect();
+
+      const result = await client.query(`
+        SELECT utc.user_id, u.name
+        FROM user_telegram_config utc
+        JOIN users u ON utc.user_id = u.id
+        WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
+      `, [chatId]);
+
+      if (result.rows.length === 0) {
+        client.release();
+        await bot.sendMessage(chatId,
+          '❌ Please connect first using /login or /verify',
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+
+      const user = result.rows[0];
+
+      // If no routine ID provided, show list of routines
+      if (!routineId) {
+        const routinesResult = await client.query(`
+          SELECT rt.id, rt.name, rt.description,
+                 COUNT(rtt.id) as tasks_count
+          FROM routine_templates rt
+          LEFT JOIN routine_template_tasks rtt ON rt.id = rtt.routine_template_id AND rtt.is_active = true
+          WHERE rt.user_id = $1 AND rt.is_active = true
+          GROUP BY rt.id
+          ORDER BY rt.created_at DESC
+          LIMIT 10
+        `, [user.user_id]);
+
+        client.release();
+
+        if (routinesResult.rows.length === 0) {
+          await bot.sendMessage(chatId,
+            '❌ *No Routines Found*\n\n' +
+            'You don\'t have any active routines.\n' +
+            'Create one first with /quickroutine',
+            { parse_mode: 'Markdown' }
+          );
+          return;
+        }
+
+        // Show routine selection buttons
+        const keyboard = routinesResult.rows.map(routine => [{
+          text: `📋 ${routine.name} (${routine.tasks_count} tasks)`,
+          callback_data: `select_routine_for_task_${routine.id}`
+        }]);
+
+        await bot.sendMessage(chatId,
+          '➕ *Add Task to Routine*\n\n' +
+          'Select a routine to add task:',
+          {
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: keyboard }
+          }
+        );
+        return;
+      }
+
+      // Verify routine exists and belongs to user
+      const routineResult = await client.query(`
+        SELECT * FROM routine_templates
+        WHERE id = $1 AND user_id = $2
+      `, [routineId, user.user_id]);
+
+      client.release();
+
+      if (routineResult.rows.length === 0) {
+        await bot.sendMessage(chatId,
+          '❌ Routine not found or doesn\'t belong to you.',
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+
+      const routine = routineResult.rows[0];
+
+      // Set state for interactive task creation
+      userStates.set(chatId, {
+        action: 'awaiting_interactive_routine_task',
+        step: 'title',
+        userId: user.user_id,
+        userName: user.name,
+        routineId: routineId,
+        routineName: routine.name,
+        taskData: {}
+      });
+
+      await bot.sendMessage(chatId,
+        `➕ *Add Task to Routine*\n\n` +
+        `📋 Routine: *${routine.name}*\n\n` +
+        `📝 *Step 1/6:* What is the task title?\n\n` +
+        `*Example:* Morning Exercise`,
+        { parse_mode: 'Markdown' }
+      );
+
+    } catch (error) {
+      console.error('Error in quickaddtask command:', error);
       await bot.sendMessage(chatId, '❌ Error. Please try again.');
     }
   });
@@ -2667,6 +2834,57 @@ Send your task info now, or /cancel to abort.
         // Handle category selection in interactive mode
         const category = data.replace('category_', '');
         await handleCategorySelection(chatId, category);
+      } else if (data.startsWith('select_routine_for_task_')) {
+        // Handle routine selection for adding task
+        const routineId = data.replace('select_routine_for_task_', '');
+        
+        // Trigger /quickaddtask with routine ID
+        const fakeMsg = {
+          chat: { id: chatId },
+          from: callbackQuery.from,
+          message_id: Date.now()
+        };
+        bot.processUpdate({
+          update_id: Date.now(),
+          message: {
+            ...fakeMsg,
+            date: Math.floor(Date.now() / 1000),
+            text: `/quickaddtask ${routineId}`
+          }
+        });
+      } else if (data === 'routine_done') {
+        // Finish routine creation
+        userStates.delete(chatId);
+        await bot.editMessageText(
+          '✅ *Routine Created Successfully!*\n\n' +
+          'You can view your routines with /myroutines',
+          {
+            chat_id: chatId,
+            message_id: messageId,
+            parse_mode: 'Markdown'
+          }
+        );
+      } else if (data.startsWith('add_task_to_new_routine_')) {
+        // Add task to newly created routine
+        const routineId = data.replace('add_task_to_new_routine_', '');
+        
+        // Trigger /addtasktoroutine command
+        const fakeMsg = {
+          chat: { id: chatId },
+          from: callbackQuery.from,
+          message_id: Date.now()
+        };
+        bot.processUpdate({
+          update_id: Date.now(),
+          message: {
+            ...fakeMsg,
+            date: Math.floor(Date.now() / 1000),
+            text: `/addtasktoroutine ${routineId}`
+          }
+        });
+        
+        // Clear state
+        userStates.delete(chatId);
       } else {
         // Unknown callback data
         console.log(`⚠️ Unknown callback data: ${data}`);
@@ -2718,6 +2936,14 @@ Send your task info now, or /cancel to abort.
     } else if (userState.action === 'awaiting_interactive_task') {
       console.log(`✅ Processing interactive task input - step: ${userState.step}`);
       await handleInteractiveTaskInput(chatId, text, userState);
+      // State will be managed by handler
+    } else if (userState.action === 'awaiting_interactive_routine') {
+      console.log(`✅ Processing interactive routine input - step: ${userState.step}`);
+      await handleInteractiveRoutineInput(chatId, text, userState);
+      // State will be managed by handler
+    } else if (userState.action === 'awaiting_interactive_routine_task') {
+      console.log(`✅ Processing interactive routine task input - step: ${userState.step}`);
+      await handleInteractiveRoutineTaskInput(chatId, text, userState);
       // State will be managed by handler
     } else if (userState.action === 'awaiting_task_edit') {
       console.log(`✅ Processing task edit for user ${chatId}`);
@@ -3288,6 +3514,312 @@ Use /quickadd again to add another task, or /mytasks to view all tasks.
   } catch (error) {
     console.error('Error creating task from interactive input:', error);
     await bot.sendMessage(chatId, '❌ Error creating task. Please try again.');
+  }
+};
+
+// Helper function for interactive routine input (step-by-step)
+const handleInteractiveRoutineInput = async (chatId, text, userState) => {
+  const { step, routineData, tasks, userId } = userState;
+
+  try {
+    switch (step) {
+      case 'name':
+        // Save name and ask for description
+        routineData.name = text.trim();
+        userState.step = 'description';
+        userStates.set(chatId, userState);
+
+        await bot.sendMessage(chatId,
+          '✅ Routine name saved!\n\n' +
+          '📝 *Step 2/2:* Add a description (optional)\n\n' +
+          'Type a brief description, or send "-" to skip.\n\n' +
+          '*Example:* Daily morning productivity routine',
+          { parse_mode: 'Markdown' }
+        );
+        break;
+
+      case 'description':
+        // Save description and create routine
+        routineData.description = text.trim() === '-' ? '' : text.trim();
+        
+        // Create the routine
+        const routineId = await createRoutineFromInteractive(chatId, routineData, userId);
+        
+        if (routineId) {
+          // Ask if user wants to add tasks
+          userState.routineId = routineId;
+          userState.step = 'add_task_prompt';
+          userStates.set(chatId, userState);
+
+          await bot.sendMessage(chatId,
+            '✅ *Routine Created Successfully!*\n\n' +
+            `📋 *${routineData.name}*\n` +
+            `${routineData.description ? `_${routineData.description}_\n\n` : '\n'}` +
+            'Would you like to add tasks to this routine?',
+            { 
+              parse_mode: 'Markdown',
+              reply_markup: {
+                inline_keyboard: [[
+                  { text: '➕ Yes, Add Tasks', callback_data: `add_task_to_new_routine_${routineId}` },
+                  { text: '✅ No, Done', callback_data: 'routine_done' }
+                ]]
+              }
+            }
+          );
+        } else {
+          userStates.delete(chatId);
+        }
+        break;
+
+      default:
+        await bot.sendMessage(chatId, '❌ Unknown step. Please start again with /quickroutine');
+        userStates.delete(chatId);
+    }
+  } catch (error) {
+    console.error('Error in interactive routine input:', error);
+    await bot.sendMessage(chatId, '❌ Error processing input. Please try /quickroutine again.');
+    userStates.delete(chatId);
+  }
+};
+
+// Helper function to create routine from interactive input
+const createRoutineFromInteractive = async (chatId, routineData, userId) => {
+  try {
+    const { v4: uuidv4 } = await import('uuid');
+    const routineId = uuidv4();
+
+    const client = await pool.connect();
+
+    // Insert routine template
+    const insertResult = await client.query(`
+      INSERT INTO routine_templates (id, user_id, name, description, is_active, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      RETURNING *
+    `, [
+      routineId,
+      userId,
+      routineData.name,
+      routineData.description || ''
+    ]);
+
+    client.release();
+
+    console.log(`✅ Routine created: ${routineId}`);
+    return routineId;
+
+  } catch (error) {
+    console.error('Error creating routine from interactive input:', error);
+    await bot.sendMessage(chatId, '❌ Error creating routine. Please try again.');
+    return null;
+  }
+};
+
+// Helper function for interactive routine task input (step-by-step)
+const handleInteractiveRoutineTaskInput = async (chatId, text, userState) => {
+  const { step, taskData, routineId, routineName, userId } = userState;
+
+  try {
+    switch (step) {
+      case 'title':
+        // Save title and ask for description
+        taskData.title = text.trim();
+        userState.step = 'description';
+        userStates.set(chatId, userState);
+
+        await bot.sendMessage(chatId,
+          '✅ Task title saved!\n\n' +
+          '📝 *Step 2/6:* Add a description (optional)\n\n' +
+          'Type a brief description, or send "-" to skip.\n\n' +
+          '*Example:* 30 minutes cardio workout',
+          { parse_mode: 'Markdown' }
+        );
+        break;
+
+      case 'description':
+        // Save description and ask for priority
+        taskData.description = text.trim() === '-' ? '' : text.trim();
+        userState.step = 'priority';
+        userStates.set(chatId, userState);
+
+        await bot.sendMessage(chatId,
+          '✅ Description saved!\n\n' +
+          '⚡ *Step 3/6:* Select task priority',
+          {
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  { text: '🔴 High', callback_data: 'priority_high' },
+                  { text: '🟡 Medium', callback_data: 'priority_medium' },
+                  { text: '🟢 Low', callback_data: 'priority_low' }
+                ]
+              ]
+            }
+          }
+        );
+        break;
+
+      case 'category':
+        // Priority already set by callback, now ask for category
+        // This step is handled by callback, but included for completeness
+        await bot.sendMessage(chatId,
+          '✅ Priority saved!\n\n' +
+          '📂 *Step 4/6:* Select task category',
+          {
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  { text: '💼 Work', callback_data: 'category_work' },
+                  { text: '📚 Learn', callback_data: 'category_learn' },
+                  { text: '🌴 Rest', callback_data: 'category_rest' }
+                ]
+              ]
+            }
+          }
+        );
+        break;
+
+      case 'time_start':
+        // Validate time format
+        const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
+        if (!timeRegex.test(text.trim())) {
+          await bot.sendMessage(chatId,
+            '❌ Invalid time format!\n\n' +
+            'Please use HH:MM format (e.g., 09:00, 14:30)\n' +
+            'Or send "-" to skip.',
+            { parse_mode: 'Markdown' }
+          );
+          return;
+        }
+
+        taskData.time_start = text.trim() === '-' ? null : text.trim();
+        userState.step = 'time_end';
+        userStates.set(chatId, userState);
+
+        await bot.sendMessage(chatId,
+          '✅ Start time saved!\n\n' +
+          '🕐 *Step 6/6:* What time does this task end? (optional)\n\n' +
+          'Send time in HH:MM format, or "-" to skip.\n\n' +
+          '*Example:* 07:00',
+          { parse_mode: 'Markdown' }
+        );
+        break;
+
+      case 'time_end':
+        // Validate time format if provided
+        if (text.trim() !== '-') {
+          const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
+          if (!timeRegex.test(text.trim())) {
+            await bot.sendMessage(chatId,
+              '❌ Invalid time format!\n\n' +
+              'Please use HH:MM format (e.g., 09:00, 14:30)\n' +
+              'Or send "-" to skip.',
+              { parse_mode: 'Markdown' }
+            );
+            return;
+          }
+        }
+
+        taskData.time_end = text.trim() === '-' ? null : text.trim();
+
+        // Create the routine task
+        await createRoutineTaskFromInteractive(chatId, taskData, routineId, routineName, userId);
+        break;
+
+      default:
+        await bot.sendMessage(chatId, '❌ Unknown step. Please start again with /quickaddtask');
+        userStates.delete(chatId);
+    }
+  } catch (error) {
+    console.error('Error in interactive routine task input:', error);
+    await bot.sendMessage(chatId, '❌ Error processing input. Please try /quickaddtask again.');
+    userStates.delete(chatId);
+  }
+};
+
+// Helper function to create routine task from interactive input
+const createRoutineTaskFromInteractive = async (chatId, taskData, routineId, routineName, userId) => {
+  try {
+    const { v4: uuidv4 } = await import('uuid');
+    const taskId = uuidv4();
+
+    const client = await pool.connect();
+
+    // Insert routine template task
+    await client.query(`
+      INSERT INTO routine_template_tasks 
+      (id, routine_template_id, title, description, priority, category, time_start, time_end, is_active, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    `, [
+      taskId,
+      routineId,
+      taskData.title,
+      taskData.description || '',
+      taskData.priority || 'medium',
+      taskData.category || 'work',
+      taskData.time_start || null,
+      taskData.time_end || null
+    ]);
+
+    client.release();
+
+    console.log(`✅ Routine task created: ${taskId}`);
+
+    // Build success message
+    const priorityEmoji = {
+      high: '🔴',
+      medium: '🟡',
+      low: '🟢'
+    };
+
+    const categoryEmoji = {
+      work: '💼',
+      learn: '📚',
+      rest: '🌴'
+    };
+
+    let successMessage = 
+      '✅ *Task Added to Routine!*\n\n' +
+      `📋 Routine: *${routineName}*\n\n` +
+      `📌 *${taskData.title}*\n`;
+
+    if (taskData.description) {
+      successMessage += `_${taskData.description}_\n\n`;
+    }
+
+    successMessage += 
+      `${priorityEmoji[taskData.priority || 'medium']} Priority: ${taskData.priority || 'medium'}\n` +
+      `${categoryEmoji[taskData.category || 'work']} Category: ${taskData.category || 'work'}\n`;
+
+    if (taskData.time_start) {
+      successMessage += `🕐 Time: ${taskData.time_start}`;
+      if (taskData.time_end) {
+        successMessage += ` - ${taskData.time_end}`;
+      }
+      successMessage += '\n';
+    }
+
+    // Ask if user wants to add more tasks
+    successMessage += '\n\nWould you like to add another task?';
+
+    await bot.sendMessage(chatId, successMessage, {
+      parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: [[
+          { text: '➕ Add Another Task', callback_data: `select_routine_for_task_${routineId}` },
+          { text: '✅ Done', callback_data: 'routine_done' }
+        ]]
+      }
+    });
+
+    // Clear state
+    userStates.delete(chatId);
+
+  } catch (error) {
+    console.error('Error creating routine task from interactive input:', error);
+    await bot.sendMessage(chatId, '❌ Error creating task. Please try again.');
+    userStates.delete(chatId);
   }
 };
 
