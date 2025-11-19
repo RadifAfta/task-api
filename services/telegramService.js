@@ -9,6 +9,8 @@ let isInitialized = false;
 
 // Store user states for multi-step commands
 const userStates = new Map();
+// Map to indicate that the next interactive /addtask for a chat should be attached to a routine
+const routineAttachMap = new Map();
 
 /**
  * Telegram Bot Service for LifePath Smart Reminder System
@@ -58,15 +60,14 @@ export const initializeTelegramBot = () => {
 const setupBotCommands = async () => {
   if (!bot) return;
 
-  try {
+    try {
     await bot.setMyCommands([
       { command: 'start', description: '🌟 Welcome message & setup guide' },
       { command: 'login', description: '🔐 Login with email & password' },
       { command: 'verify', description: '✅ Verify with code from app' },
       { command: 'quick', description: '⚡ Quick task actions' },
-      { command: 'quickadd', description: '➕ Quick add task (no symbols!)' },
-      { command: 'quickroutine', description: '📋 Quick add routine (no symbols!)' },
-      { command: 'addtask', description: '📝 Add task (advanced format)' },
+      { command: 'addtask', description: '➕ Add task (interactive)' },
+      { command: 'addroutine', description: '📋 Add routine (interactive)' },
       { command: 'mytasks', description: '📋 My tasks with actions' },
       { command: 'today', description: '📅 View today\'s tasks' },
       { command: 'complete', description: '✅ Mark task as done' },
@@ -74,7 +75,7 @@ const setupBotCommands = async () => {
       { command: 'status', description: '� Check connection & settings' },
       { command: 'menu', description: '📋 Show command menu' }
     ]);
-    
+
     console.log('✅ Telegram Bot command menu registered');
   } catch (error) {
     console.error('❌ Failed to set bot commands:', error);
@@ -578,12 +579,12 @@ Stay productive! 🚀
     });
   });
 
-  // /addtask command - Add new task
-  bot.onText(/\/addtask(?:\s+(.+))?/, async (msg, match) => {
+  // /addtaskraw command - Add new task (advanced/raw format)
+  bot.onText(/\/addtaskraw(?:\s+(.+))?/, async (msg, match) => {
     const chatId = msg.chat.id;
-    const taskDetails = match[1]; // Text after /addtask (if any)
+    const taskDetails = match[1]; // Text after /addtaskraw (if any)
     
-    console.log(`📝 /addtask command received from ${msg.from.username || msg.from.first_name} (${chatId})`);
+    console.log(`📝 /addtaskraw command received from ${msg.from.username || msg.from.first_name} (${chatId})`);
     console.log(`📋 Task details in command: "${taskDetails}"`);
 
     try {
@@ -655,7 +656,7 @@ Please send your task details in this format:
 \`Team Meeting | | | | 09:00 | 10:00\`
 
 *Or use directly:*
-\`/addtask Meeting | Discuss goals | high | work | 09:00 | 10:00\`
+\`/addtaskraw Meeting | Discuss goals | high | work | 09:00 | 10:00\`
 
 ⚠️ *Note:* TimeStart is required to enable task reminders!
       `;
@@ -721,6 +722,46 @@ Please send your task details in this format:
       console.error('Error in quickadd command:', error);
       await bot.sendMessage(chatId, '❌ Error. Please try again.');
     }
+  });
+
+  // /addtask now maps to the interactive quick add (keeps backward-friendly main command)
+  bot.onText(/\/addtask(?:\s+(.+))?/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    // If user provided inline details (rare), pass them to quickadd handler via processUpdate
+    const fakeMsg = {
+      chat: { id: chatId },
+      from: msg.from,
+      message_id: Date.now()
+    };
+
+    // Trigger interactive quickadd flow
+    bot.processUpdate({
+      update_id: Date.now(),
+      message: {
+        ...fakeMsg,
+        date: Math.floor(Date.now() / 1000),
+        text: '/quickadd'
+      }
+    });
+  });
+
+  // /addroutine maps to the interactive quick routine command
+  bot.onText(/\/addroutine/, async (msg) => {
+    const chatId = msg.chat.id;
+    const fakeMsg = {
+      chat: { id: chatId },
+      from: msg.from,
+      message_id: Date.now()
+    };
+
+    bot.processUpdate({
+      update_id: Date.now(),
+      message: {
+        ...fakeMsg,
+        date: Math.floor(Date.now() / 1000),
+        text: '/quickroutine'
+      }
+    });
   });
 
   // /today command - View today's tasks
@@ -2039,7 +2080,7 @@ Send your task info now, or /cancel to abort.
           message: {
             ...fakeMsg,
             date: Math.floor(Date.now() / 1000),
-            text: '/quickadd'
+            text: '/addtask'
           }
         });
       } else if (data === 'cmd_mytasks') {
@@ -2173,12 +2214,14 @@ Send your task info now, or /cancel to abort.
           from: callbackQuery.from,
           message_id: Date.now()
         };
+        // Mark that the next /addtask should attach to this routine, then open the interactive /addtask flow
+        routineAttachMap.set(chatId, routineId);
         bot.processUpdate({
           update_id: Date.now(),
           message: {
             ...fakeMsg,
             date: Math.floor(Date.now() / 1000),
-            text: `/addtasktoroutine ${routineId}`
+            text: '/addtask'
           }
         });
       } else if (data.startsWith('task_complete_')) {
@@ -2249,10 +2292,12 @@ Send your task info now, or /cancel to abort.
           }
         );
       } else if (data.startsWith('add_task_to_new_routine_')) {
-        // Add task to newly created routine
+        // Add task to newly created routine: open the interactive /addtask flow
         const routineId = data.replace('add_task_to_new_routine_', '');
-        
-        // Trigger /addtasktoroutine command
+
+        // Mark that the next /addtask should attach to this routine, then open the interactive /addtask flow
+        routineAttachMap.set(chatId, routineId);
+
         const fakeMsg = {
           chat: { id: chatId },
           from: callbackQuery.from,
@@ -2263,11 +2308,11 @@ Send your task info now, or /cancel to abort.
           message: {
             ...fakeMsg,
             date: Math.floor(Date.now() / 1000),
-            text: `/addtasktoroutine ${routineId}`
+            text: '/addtask'
           }
         });
-        
-        // Clear state
+
+        // Clear previous routine creation state
         userStates.delete(chatId);
       } else {
         // Unknown callback data
@@ -2837,6 +2882,26 @@ const handleInteractiveTaskInput = async (chatId, text, userState) => {
 // Helper function to create task from interactive input
 const createTaskFromInteractive = async (chatId, taskData, userId) => {
   try {
+    // If this chat was marked to attach the next created task to a routine template,
+    // call the routine-specific creator instead and clear the flag.
+    if (routineAttachMap.has(chatId)) {
+      const routineId = routineAttachMap.get(chatId);
+      try {
+        const client = await pool.connect();
+        const res = await client.query('SELECT name FROM routine_templates WHERE id = $1 AND user_id = $2', [routineId, userId]);
+        client.release();
+
+        const routineName = res.rows.length ? res.rows[0].name : 'Routine';
+
+        // Delegate creation to the routine task creator
+        await createRoutineTaskFromInteractive(chatId, taskData, routineId, routineName, userId);
+        routineAttachMap.delete(chatId);
+        return;
+      } catch (err) {
+        console.error('Error attaching task to routine:', err);
+        // Fall through to normal task creation if anything fails
+      }
+    }
     const { v4: uuidv4 } = await import('uuid');
     const taskId = uuidv4();
 
@@ -3289,7 +3354,8 @@ const handleGenerateAllRoutines = async (chatId) => {
 const handlePrioritySelection = async (chatId, priority) => {
   const userState = userStates.get(chatId);
   
-  if (!userState || userState.action !== 'awaiting_interactive_task' || userState.step !== 'priority') {
+  // Accept priority selection for both regular interactive task and routine-interactive task
+  if (!userState || (userState.action !== 'awaiting_interactive_task' && userState.action !== 'awaiting_interactive_routine_task') || userState.step !== 'priority') {
     await bot.sendMessage(chatId, '❌ Invalid state. Please start again with /quickadd');
     return;
   }
@@ -3322,7 +3388,8 @@ const handlePrioritySelection = async (chatId, priority) => {
 const handleCategorySelection = async (chatId, category) => {
   const userState = userStates.get(chatId);
   
-  if (!userState || userState.action !== 'awaiting_interactive_task' || userState.step !== 'category') {
+  // Accept category selection for both regular interactive task and routine-interactive task
+  if (!userState || (userState.action !== 'awaiting_interactive_task' && userState.action !== 'awaiting_interactive_routine_task') || userState.step !== 'category') {
     await bot.sendMessage(chatId, '❌ Invalid state. Please start again with /quickadd');
     return;
   }
@@ -3395,7 +3462,7 @@ const handleTaskInput = async (chatId, input, userId, userName) => {
         '*Example:*\n' +
         '\`Meeting | Discuss project | high | work | 09:00 | 10:00\`\n' +
         '\`Study | Learn Python | medium | learn | 14:30 | 16:00\`\n\n' +
-        'Try again with /addtask',
+        'Try again with /addtaskraw',
         { parse_mode: 'Markdown' }
       );
       return;
