@@ -2351,10 +2351,40 @@ Send your task info now, or /cancel to abort.
         // Delete task with confirmation
         const taskId = data.replace('task_delete_', '');
         await handleTaskDeleteConfirm(chatId, messageId, taskId);
+      } else if (data.startsWith('confirm_delete_routine_')) {
+        // Confirm delete routine
+        const routineId = data.replace('confirm_delete_routine_', '');
+        // Verify user and delete
+        const client = await pool.connect();
+        try {
+          const userRes = await client.query(`SELECT user_id FROM user_telegram_config WHERE telegram_chat_id = $1 AND is_verified = true`, [chatId]);
+          if (userRes.rows.length === 0) {
+            client.release();
+            await bot.editMessageText('❌ Not connected. Please /login or /verify first.', { chat_id: chatId, message_id: messageId });
+            return;
+          }
+          const userId = userRes.rows[0].user_id;
+          const routineModel = await import('../models/routineModel.js');
+          const deleted = await routineModel.deleteRoutineTemplate(routineId, userId);
+          client.release();
+
+          if (!deleted) {
+            await bot.editMessageText('⚠️ Routine not found or you do not have permission to delete it.', { chat_id: chatId, message_id: messageId });
+            return;
+          }
+
+          await bot.editMessageText('✅ Routine template deleted successfully.', { chat_id: chatId, message_id: messageId });
+        } catch (err) {
+          client.release();
+          console.error('Error deleting routine:', err);
+          await bot.sendMessage(chatId, '❌ Error deleting routine. Please try again.');
+        }
       } else if (data.startsWith('confirm_delete_')) {
-        // Confirm delete
+        // Confirm delete task
         const taskId = data.replace('confirm_delete_', '');
         await handleTaskDeleteExecute(chatId, messageId, taskId);
+      } else if (data.startsWith('cancel_delete_routine_')) {
+        await bot.editMessageText('❌ Routine deletion cancelled.', { chat_id: chatId, message_id: messageId });
       } else if (data.startsWith('cancel_delete_')) {
         // Cancel delete
         await bot.editMessageText('❌ Delete cancelled.', {
@@ -2429,6 +2459,10 @@ Send your task info now, or /cancel to abort.
 
         // Clear previous routine creation state
         userStates.delete(chatId);
+      } else if (data.startsWith('generate_routine_now_')) {
+        // Generate routine immediately after creation
+        const routineId = data.replace('generate_routine_now_', '');
+        await handleGenerateRoutineNow(chatId, messageId, routineId);
       } else if (data.startsWith('routine_delete_')) {
         // Ask for confirmation before deleting routine template
         const routineId = data.replace('routine_delete_', '');
@@ -2443,33 +2477,6 @@ Send your task info now, or /cancel to abort.
             ]]
           }
         });
-      } else if (data.startsWith('confirm_delete_routine_')) {
-        const routineId = data.replace('confirm_delete_routine_', '');
-        // Verify user and delete
-        const client = await pool.connect();
-        try {
-          const userRes = await client.query(`SELECT user_id FROM user_telegram_config WHERE telegram_chat_id = $1 AND is_verified = true`, [chatId]);
-          if (userRes.rows.length === 0) {
-            client.release();
-            await bot.editMessageText('❌ Not connected. Please /login or /verify first.', { chat_id: chatId, message_id: messageId });
-            return;
-          }
-          const userId = userRes.rows[0].user_id;
-          const routineModel = await import('../models/routineModel.js');
-          const deleted = await routineModel.deleteRoutineTemplate(routineId, userId);
-          client.release();
-
-          if (!deleted) {
-            await bot.editMessageText('⚠️ Routine not found or you do not have permission to delete it.', { chat_id: chatId, message_id: messageId });
-            return;
-          }
-
-          await bot.editMessageText('✅ Routine template deleted successfully.', { chat_id: chatId, message_id: messageId });
-        } catch (err) {
-          client.release();
-          console.error('Error deleting routine:', err);
-          await bot.sendMessage(chatId, '❌ Error deleting routine. Please try again.');
-        }
       } else if (data.startsWith('cancel_delete_routine_')) {
         await bot.editMessageText('❌ Routine deletion cancelled.', { chat_id: chatId, message_id: messageId });
       } else if (data.startsWith('routine_edit_')) {
@@ -3319,7 +3326,7 @@ const handleTaskDeleteExecute = async (chatId, messageId, taskId) => {
 
     // Delete associated reminders first
     await client.query(`
-      DELETE FROM reminders WHERE task_id = $1
+      DELETE FROM scheduled_reminders WHERE task_id = $1
     `, [taskId]);
 
     // Delete task
@@ -3691,14 +3698,19 @@ const handleInteractiveRoutineInput = async (chatId, text, userState) => {
             '✅ *Routine Created Successfully!*\n\n' +
             `📋 *${routineData.name}*\n` +
             `${routineData.description ? `_${routineData.description}_\n\n` : '\n'}` +
-            'Would you like to add tasks to this routine?',
+            'What would you like to do next?',
             { 
               parse_mode: 'Markdown',
               reply_markup: {
-                inline_keyboard: [[
-                  { text: '➕ Yes, Add Tasks', callback_data: `add_task_to_new_routine_${routineId}` },
-                  { text: '✅ No, Done', callback_data: 'routine_done' }
-                ]]
+                inline_keyboard: [
+                  [
+                    { text: '➕ Add Tasks', callback_data: `add_task_to_new_routine_${routineId}` },
+                    { text: '🚀 Generate Now', callback_data: `generate_routine_now_${routineId}` }
+                  ],
+                  [
+                    { text: '✅ Done', callback_data: 'routine_done' }
+                  ]
+                ]
               }
             }
           );
@@ -3966,15 +3978,20 @@ const createRoutineTaskFromInteractive = async (chatId, taskData, routineId, rou
     }
 
     // Ask if user wants to add more tasks
-    successMessage += '\n\nWould you like to add another task?';
+    successMessage += '\n\nWhat would you like to do next?';
 
     await bot.sendMessage(chatId, successMessage, {
       parse_mode: 'Markdown',
       reply_markup: {
-        inline_keyboard: [[
-          { text: '➕ Add Another Task', callback_data: `select_routine_for_task_${routineId}` },
-          { text: '✅ Done', callback_data: 'routine_done' }
-        ]]
+        inline_keyboard: [
+          [
+            { text: '➕ Add Another Task', callback_data: `select_routine_for_task_${routineId}` },
+            { text: '🚀 Generate Now', callback_data: `generate_routine_now_${routineId}` }
+          ],
+          [
+            { text: '✅ Done', callback_data: 'routine_done' }
+          ]
+        ]
       }
     });
 
@@ -4031,7 +4048,7 @@ const handleGenerateAllRoutines = async (chatId) => {
         const routineService = await import('../services/routineService.js');
         
         // Generate tasks
-        const result = await routineService.generateDailyRoutine(user.user_id, routine.id);
+        const result = await routineService.generateDailyTasksFromTemplate(user.user_id, routine.id);
         
         if (result.success) {
           totalTasksGenerated += result.tasksGenerated || 0;
@@ -4063,6 +4080,82 @@ const handleGenerateAllRoutines = async (chatId) => {
   } catch (error) {
     console.error('Error generating all routines:', error);
     await bot.sendMessage(chatId, '❌ Error generating routines');
+  }
+};
+
+// Helper function to generate a specific routine immediately
+const handleGenerateRoutineNow = async (chatId, messageId, routineId) => {
+  try {
+    const client = await pool.connect();
+
+    // Get user info
+    const userResult = await client.query(`
+      SELECT utc.user_id, u.name
+      FROM user_telegram_config utc
+      JOIN users u ON utc.user_id = u.id
+      WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
+    `, [chatId]);
+
+    if (userResult.rows.length === 0) {
+      client.release();
+      await bot.editMessageText('❌ Please connect first using /login', { chat_id: chatId, message_id: messageId });
+      return;
+    }
+
+    const user = userResult.rows[0];
+
+    // Get the specific routine
+    const routineResult = await client.query(`
+      SELECT * FROM routine_templates
+      WHERE id = $1 AND user_id = $2 AND is_active = true
+    `, [routineId, user.user_id]);
+
+    if (routineResult.rows.length === 0) {
+      client.release();
+      await bot.editMessageText('❌ Routine not found or not active', { chat_id: chatId, message_id: messageId });
+      return;
+    }
+
+    const routine = routineResult.rows[0];
+    client.release();
+
+    // Import routine service and generate tasks
+    const routineService = await import('../services/routineService.js');
+    const result = await routineService.generateDailyTasksFromTemplate(user.user_id, routine.id);
+
+    if (!result.success) {
+      await bot.editMessageText(
+        `❌ Failed to generate routine "${routine.name}".\n\n${result.error || 'Unknown error'}`,
+        { chat_id: chatId, message_id: messageId }
+      );
+      return;
+    }
+
+    const tasksGenerated = result.tasksGenerated || 0;
+
+    if (tasksGenerated === 0) {
+      await bot.editMessageText(
+        `⚠️ No new tasks generated from "${routine.name}".\n\nThe routine may have already been generated today.`,
+        { chat_id: chatId, message_id: messageId }
+      );
+      return;
+    }
+
+    await bot.editMessageText(
+      `✅ *Routine Generated Successfully!*\n\n` +
+      `🗓️ Routine: ${routine.name}\n` +
+      `📋 *${tasksGenerated} tasks* added to your list\n\n` +
+      `Use /today to see your tasks!`,
+      { 
+        chat_id: chatId, 
+        message_id: messageId,
+        parse_mode: 'Markdown'
+      }
+    );
+
+  } catch (error) {
+    console.error('Error generating routine:', error);
+    await bot.editMessageText('❌ Error generating routine. Please try again.', { chat_id: chatId, message_id: messageId });
   }
 };
 
