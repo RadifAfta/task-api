@@ -159,16 +159,24 @@ Select a command below or type it manually:
 • \`/verify <code>\` - Verify with app code
 
 *Tasks:*
-• \`/addtask\` - Add new task
+• \`/addtask\` - Add new task (interactive)
+• \`/quickadd\` - Quick add task
 • \`/today\` - View today's tasks
 
 *Routines:*
-• \`/myroutines\` - View routine templates
-• \`/generateroutine\` - Generate daily routine
+• \`/myroutines\` - View & manage routine templates ✨
+• \`/generateroutine\` - Generate daily routine ✨
+• \`/addroutine\` - Create new routine template
 
 *Information:*
 • \`/status\` - Check connection status
 • \`/help\` - Get help & documentation
+
+*✨ Recent Updates:*
+• Enhanced routine management with detailed views
+• Auto-generate option after creating routines
+• Improved task generation with better feedback
+• Interactive routine & task creation flows
 
 *Quick Actions:*
 Use the buttons below for quick access! 👇
@@ -181,18 +189,19 @@ Use the buttons below for quick access! 👇
           { text: '📅 Today\'s Tasks', callback_data: 'cmd_today' }
         ],
         [
-          { text: '📋 My Routines', callback_data: 'cmd_myroutines' },
-          { text: '🔄 Generate All', callback_data: 'generate_all_routines' }
+          { text: '📋 My Routines ✨', callback_data: 'cmd_myroutines' },
+          { text: '🔄 Generate ✨', callback_data: 'generate_all_routines' }
+        ],
+        [
+          { text: '🏗️ Create Routine', callback_data: 'cmd_addroutine' },
+          { text: '📊 Check Status', callback_data: 'cmd_status' }
         ],
         [
           { text: '🔐 Login Guide', callback_data: 'guide_login' },
           { text: '✅ Verify Guide', callback_data: 'guide_verify' }
         ],
         [
-          { text: '📊 Check Status', callback_data: 'cmd_status' },
-          { text: '📚 Help', callback_data: 'cmd_help' }
-        ],
-        [
+          { text: '📚 Help & Docs', callback_data: 'cmd_help' },
           { text: '🔄 Refresh Menu', callback_data: 'cmd_menu' }
         ]
       ]
