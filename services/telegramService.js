@@ -1612,13 +1612,13 @@ Use /today to see your remaining tasks.
 
       const user = result.rows[0];
 
-      // Get user's routine templates
+      // Get user's routine templates with more detailed info
       const routinesResult = await client.query(`
-        SELECT rt.*, 
+        SELECT rt.*,
                COUNT(rtt.id) as tasks_count,
-               CASE 
-                 WHEN COUNT(rtt.id) > 0 THEN true 
-                 ELSE false 
+               CASE
+                 WHEN COUNT(rtt.id) > 0 THEN true
+                 ELSE false
                END as has_tasks
         FROM routine_templates rt
         LEFT JOIN routine_template_tasks rtt ON rt.id = rtt.routine_template_id AND rtt.is_active = true
@@ -1653,30 +1653,65 @@ You have ${routines.length} routine template${routines.length > 1 ? 's' : ''}
       if (activeRoutines.length > 0) {
         message += '\n\n✅ *ACTIVE ROUTINES:*\n';
         activeRoutines.forEach((routine, idx) => {
-          message += `\n${idx + 1}. *${routine.name}*`;
+          const statusEmoji = routine.has_tasks ? '📝' : '⚠️';
+
+          message += `\n${idx + 1}. ${statusEmoji} *${routine.name}*`;
           if (routine.description) {
-            message += `\n   _${routine.description.substring(0, 50)}${routine.description.length > 50 ? '...' : ''}_`;
+            message += `\n   📄 ${routine.description}`;
           }
-          message += `\n   📝 ${routine.tasks_count} tasks`;
-          message += `\n   ID: \`${routine.id}\`\n`;
+          message += `\n   📋 ${routine.tasks_count} task${routine.tasks_count !== 1 ? 's' : ''}`;
+          message += `\n   📅 Created: ${new Date(routine.created_at).toLocaleDateString()}\n`;
         });
       }
 
       if (inactiveRoutines.length > 0) {
         message += '\n\n⏸️  *INACTIVE ROUTINES:*\n';
         inactiveRoutines.forEach((routine, idx) => {
-          message += `\n${idx + 1}. ${routine.name} (${routine.tasks_count} tasks)`;
+          const statusEmoji = routine.has_tasks ? '📝' : '⚠️';
+          message += `\n${idx + 1}. ${statusEmoji} ${routine.name}`;
+          message += `\n   📋 ${routine.tasks_count} task${routine.tasks_count !== 1 ? 's' : ''}`;
+          message += `\n   📅 Created: ${new Date(routine.created_at).toLocaleDateString()}\n`;
         });
       }
 
-      message += '\n\n💡 *Tip:* Use `/generateroutine <routine-id>` to generate tasks from a routine!';
+      message += '\n💡 *Quick Actions:*';
+      message += '\n• Use buttons below to manage routines';
+      message += '\n• Tap routine name to see options';
 
+      // Create dynamic keyboard with routine management options
       const keyboard = {
-        inline_keyboard: [[
-          { text: '🔄 Generate All Routines', callback_data: 'generate_all_routines' },
-          { text: '🔄 Refresh', callback_data: 'cmd_myroutines' }
-        ]]
+        inline_keyboard: []
       };
+
+      // Add buttons for active routines
+      if (activeRoutines.length > 0) {
+        activeRoutines.forEach((routine) => {
+          keyboard.inline_keyboard.push([
+            { text: `📝 ${routine.name}`, callback_data: `routine_manage_${routine.id}` },
+            { text: '🚀 Generate', callback_data: `generate_routine_now_${routine.id}` }
+          ]);
+        });
+      }
+
+      // Add buttons for inactive routines
+      if (inactiveRoutines.length > 0) {
+        inactiveRoutines.forEach((routine) => {
+          keyboard.inline_keyboard.push([
+            { text: `📝 ${routine.name}`, callback_data: `routine_manage_${routine.id}` },
+            { text: '▶️ Activate', callback_data: `activate_routine_${routine.id}` }
+          ]);
+        });
+      }
+
+      // Add general action buttons
+      keyboard.inline_keyboard.push([
+        { text: '🚀 Generate All Active', callback_data: 'generate_all_routines' },
+        { text: '➕ Create New Routine', callback_data: 'cmd_addroutine' }
+      ]);
+      keyboard.inline_keyboard.push([
+        { text: '🔄 Refresh List', callback_data: 'cmd_myroutines' },
+        { text: '📊 View Today\'s Tasks', callback_data: 'cmd_today' }
+      ]);
 
       await bot.sendMessage(chatId, message, { 
         parse_mode: 'Markdown',
@@ -1692,10 +1727,10 @@ You have ${routines.length} routine template${routines.length > 1 ? 's' : ''}
   // /generateroutine command - Generate tasks from routine template
   bot.onText(/\/generateroutine(?:\s+(.+))?/, async (msg, match) => {
     const chatId = msg.chat.id;
-    const routineId = match[1]?.trim();
-    
+    const input = match[1]?.trim();
+
     console.log(`🔄 /generateroutine command received from ${msg.from.username || msg.from.first_name} (${chatId})`);
-    console.log(`📋 Routine ID: "${routineId}"`);
+    console.log(`📋 Input: "${input}"`);
 
     try {
       const client = await pool.connect();
@@ -1720,16 +1755,20 @@ You have ${routines.length} routine template${routines.length > 1 ? 's' : ''}
 
       const user = result.rows[0];
 
-      // If no routine ID provided, show available routines
-      if (!routineId) {
+      // If no input provided, show available routines with better formatting
+      if (!input) {
         const routinesResult = await client.query(`
-          SELECT rt.id, rt.name, rt.description, rt.is_active,
-                 COUNT(rtt.id) as tasks_count
+          SELECT rt.id, rt.name, rt.description, rt.is_active, rt.created_at,
+                 COUNT(rtt.id) as tasks_count,
+                 CASE
+                   WHEN COUNT(rtt.id) > 0 THEN true
+                   ELSE false
+                 END as has_tasks
           FROM routine_templates rt
           LEFT JOIN routine_template_tasks rtt ON rt.id = rtt.routine_template_id AND rtt.is_active = true
-          WHERE rt.user_id = $1 AND rt.is_active = true
+          WHERE rt.user_id = $1
           GROUP BY rt.id
-          ORDER BY rt.created_at DESC
+          ORDER BY rt.is_active DESC, rt.created_at DESC
         `, [user.user_id]);
 
         client.release();
@@ -1737,12 +1776,13 @@ You have ${routines.length} routine template${routines.length > 1 ? 's' : ''}
         if (routinesResult.rows.length === 0) {
           await bot.sendMessage(chatId,
             '🔄 *Generate Routine*\n\n' +
-            '❌ You don\'t have any active routine templates.\n\n' +
-            'Create a routine template in the LifePath app first!',
-            { 
+            '❌ You don\'t have any routine templates.\n\n' +
+            'Create a routine template first!',
+            {
               parse_mode: 'Markdown',
               reply_markup: {
                 inline_keyboard: [[
+                  { text: '➕ Create New Routine', callback_data: 'cmd_addroutine' },
                   { text: '📋 View My Routines', callback_data: 'cmd_myroutines' }
                 ]]
               }
@@ -1751,21 +1791,72 @@ You have ${routines.length} routine template${routines.length > 1 ? 's' : ''}
           return;
         }
 
+        const activeRoutines = routinesResult.rows.filter(r => r.is_active);
+        const inactiveRoutines = routinesResult.rows.filter(r => !r.is_active);
+
         let message = `
 🔄 *Generate Routine*
 
-Select a routine to generate, or use:
-\`/generateroutine <routine-id>\`
+Choose a routine to generate tasks from:
 
-*Available Routines:*
+*How to use:*
+• Click routine name to generate
+• Or use: \`/generateroutine <name>\`
 `;
 
-        routinesResult.rows.forEach((routine, idx) => {
-          message += `\n${idx + 1}. *${routine.name}* (${routine.tasks_count} tasks)`;
-          message += `\n   ID: \`${routine.id}\`\n`;
-        });
+        if (activeRoutines.length > 0) {
+          message += '\n\n✅ *ACTIVE ROUTINES:*\n';
+          activeRoutines.forEach((routine, idx) => {
+            const statusEmoji = routine.has_tasks ? '📝' : '⚠️';
+            message += `\n${idx + 1}. ${statusEmoji} *${routine.name}*`;
+            if (routine.description) {
+              message += `\n   📄 ${routine.description}`;
+            }
+            message += `\n   📋 ${routine.tasks_count} task${routine.tasks_count !== 1 ? 's' : ''}`;
+            message += `\n   📅 Created: ${new Date(routine.created_at).toLocaleDateString()}\n`;
+          });
+        }
 
-        await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+        if (inactiveRoutines.length > 0) {
+          message += '\n\n⏸️ *INACTIVE ROUTINES:*\n';
+          inactiveRoutines.forEach((routine, idx) => {
+            const statusEmoji = routine.has_tasks ? '📝' : '⚠️';
+            message += `\n${idx + 1}. ${statusEmoji} ~~${routine.name}~~ *(Inactive)*`;
+            message += `\n   📋 ${routine.tasks_count} task${routine.tasks_count !== 1 ? 's' : ''}\n`;
+          });
+        }
+
+        message += '\n💡 *Tip:* Only active routines can generate tasks.';
+
+        // Create dynamic keyboard with routine options
+        const keyboard = {
+          inline_keyboard: []
+        };
+
+        // Add buttons for active routines
+        if (activeRoutines.length > 0) {
+          activeRoutines.forEach((routine) => {
+            keyboard.inline_keyboard.push([
+              { text: `🚀 ${routine.name}`, callback_data: `generate_routine_now_${routine.id}` },
+              { text: '📝 Manage', callback_data: `routine_manage_${routine.id}` }
+            ]);
+          });
+        }
+
+        // Add general action buttons
+        keyboard.inline_keyboard.push([
+          { text: '🚀 Generate All Active', callback_data: 'generate_all_routines' },
+          { text: '➕ Create New Routine', callback_data: 'cmd_addroutine' }
+        ]);
+        keyboard.inline_keyboard.push([
+          { text: '📋 My Routines', callback_data: 'cmd_myroutines' },
+          { text: '📅 Today\'s Tasks', callback_data: 'cmd_today' }
+        ]);
+
+        await bot.sendMessage(chatId, message, {
+          parse_mode: 'Markdown',
+          reply_markup: keyboard
+        });
         return;
       }
 
@@ -1786,27 +1877,48 @@ Select a routine to generate, or use:
       }
 
       const routine = generationResult.routineTemplate;
-      const successMessage = `
+      const tasksGenerated = generationResult.tasksGenerated || 0;
+
+      let successMessage = `
 ✅ *Routine Generated Successfully!*
 
 📋 *${routine.name}*
-${routine.description ? `_${routine.description}_\n` : ''}
-📅 *Date:* ${generationResult.generationDate}
-✅ *Tasks Created:* ${generationResult.tasksGenerated}
+${routine.description ? `📄 ${routine.description}\n` : ''}
+📅 *Generated for:* ${new Date(generationResult.generationDate).toLocaleDateString()}
+✅ *Tasks Created:* ${tasksGenerated}
+`;
 
-Your daily tasks have been generated! 🎉
+      if (tasksGenerated > 0) {
+        successMessage += `\n🎉 Your daily routine is ready!`;
+        successMessage += `\n\n💡 *Next Steps:*`;
+        successMessage += `\n• Use /today to see all your tasks`;
+        successMessage += `\n• Tasks will appear in your daily schedule`;
+      } else {
+        successMessage += `\n⚠️ No new tasks were created.`;
+        successMessage += `\n\n*Possible reasons:*`;
+        successMessage += `\n• Routine already generated today`;
+        successMessage += `\n• No active tasks in this routine`;
+        successMessage += `\n• All tasks already exist`;
+      }
 
-Use /today to see all your tasks for today.
-      `;
-
-      await bot.sendMessage(chatId, successMessage, { 
-        parse_mode: 'Markdown',
-        reply_markup: {
-          inline_keyboard: [[
+      const keyboard = {
+        inline_keyboard: [
+          [
             { text: '📅 View Today\'s Tasks', callback_data: 'cmd_today' },
             { text: '📋 My Routines', callback_data: 'cmd_myroutines' }
-          ]]
-        }
+          ]
+        ]
+      };
+
+      if (tasksGenerated > 0) {
+        keyboard.inline_keyboard.unshift([
+          { text: '🚀 Generate Another', callback_data: 'generate_all_routines' }
+        ]);
+      }
+
+      await bot.sendMessage(chatId, successMessage, {
+        parse_mode: 'Markdown',
+        reply_markup: keyboard
       });
 
     } catch (error) {
@@ -2228,6 +2340,21 @@ Send your task info now, or /cancel to abort.
             text: '/today'
           }
         });
+      } else if (data === 'cmd_addroutine') {
+        // Execute /addroutine command directly
+        const fakeMsg = {
+          chat: { id: chatId },
+          from: callbackQuery.from,
+          message_id: Date.now()
+        };
+        bot.processUpdate({
+          update_id: Date.now(),
+          message: {
+            ...fakeMsg,
+            date: Math.floor(Date.now() / 1000),
+            text: '/addroutine'
+          }
+        });
       } else if (data === 'cmd_complete') {
         // Execute /complete command directly
         const fakeMsg = {
@@ -2463,6 +2590,18 @@ Send your task info now, or /cancel to abort.
         // Generate routine immediately after creation
         const routineId = data.replace('generate_routine_now_', '');
         await handleGenerateRoutineNow(chatId, messageId, routineId);
+      } else if (data.startsWith('routine_manage_')) {
+        // Show routine management options
+        const routineId = data.replace('routine_manage_', '');
+        await handleRoutineManagement(chatId, messageId, routineId);
+      } else if (data.startsWith('activate_routine_')) {
+        // Activate inactive routine
+        const routineId = data.replace('activate_routine_', '');
+        await handleActivateRoutine(chatId, messageId, routineId);
+      } else if (data.startsWith('deactivate_routine_')) {
+        // Deactivate active routine
+        const routineId = data.replace('deactivate_routine_', '');
+        await handleDeactivateRoutine(chatId, messageId, routineId);
       } else if (data.startsWith('routine_delete_')) {
         // Ask for confirmation before deleting routine template
         const routineId = data.replace('routine_delete_', '');
@@ -4080,6 +4219,202 @@ const handleGenerateAllRoutines = async (chatId) => {
   } catch (error) {
     console.error('Error generating all routines:', error);
     await bot.sendMessage(chatId, '❌ Error generating routines');
+  }
+};
+
+// Helper function to show routine management options
+const handleRoutineManagement = async (chatId, messageId, routineId) => {
+  try {
+    const client = await pool.connect();
+
+    // Get user info and routine details
+    const userResult = await client.query(`
+      SELECT utc.user_id, u.name
+      FROM user_telegram_config utc
+      JOIN users u ON utc.user_id = u.id
+      WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
+    `, [chatId]);
+
+    if (userResult.rows.length === 0) {
+      client.release();
+      await bot.editMessageText('❌ Please connect first using /login', { chat_id: chatId, message_id: messageId });
+      return;
+    }
+
+    const user = userResult.rows[0];
+
+    // Get routine details
+    const routineResult = await client.query(`
+      SELECT rt.*,
+             COUNT(rtt.id) as tasks_count
+      FROM routine_templates rt
+      LEFT JOIN routine_template_tasks rtt ON rt.id = rtt.routine_template_id AND rtt.is_active = true
+      WHERE rt.id = $1 AND rt.user_id = $2
+      GROUP BY rt.id
+    `, [routineId, user.user_id]);
+
+    if (routineResult.rows.length === 0) {
+      client.release();
+      await bot.editMessageText('❌ Routine not found', { chat_id: chatId, message_id: messageId });
+      return;
+    }
+
+    const routine = routineResult.rows[0];
+    client.release();
+
+    const statusEmoji = routine.is_active ? '✅' : '⏸️';
+
+    let message = `
+📝 *Routine Management*
+
+${statusEmoji} *${routine.name}*
+📄 ${routine.description || 'No description'}
+📋 ${routine.tasks_count} tasks
+📅 Created: ${new Date(routine.created_at).toLocaleDateString()}
+📅 Updated: ${new Date(routine.updated_at).toLocaleDateString()}
+`;
+
+    const keyboard = {
+      inline_keyboard: [
+        [
+          { text: '📝 Edit Routine', callback_data: `routine_edit_${routineId}` },
+          { text: '➕ Add Tasks', callback_data: `select_routine_for_task_${routineId}` }
+        ],
+        [
+          { text: '🚀 Generate Now', callback_data: `generate_routine_now_${routineId}` },
+          { text: routine.is_active ? '⏸️ Deactivate' : '▶️ Activate', callback_data: routine.is_active ? `deactivate_routine_${routineId}` : `activate_routine_${routineId}` }
+        ],
+        [
+          { text: '🗑️ Delete', callback_data: `routine_delete_${routineId}` },
+          { text: '⬅️ Back to List', callback_data: 'cmd_myroutines' }
+        ]
+      ]
+    };
+
+    await bot.editMessageText(message, {
+      chat_id: chatId,
+      message_id: messageId,
+      parse_mode: 'Markdown',
+      reply_markup: keyboard
+    });
+
+  } catch (error) {
+    console.error('Error showing routine management:', error);
+    await bot.editMessageText('❌ Error loading routine details', { chat_id: chatId, message_id: messageId });
+  }
+};
+
+// Helper function to activate/deactivate routine
+const handleActivateRoutine = async (chatId, messageId, routineId) => {
+  try {
+    const client = await pool.connect();
+
+    // Get user info
+    const userResult = await client.query(`
+      SELECT utc.user_id, u.name
+      FROM user_telegram_config utc
+      JOIN users u ON utc.user_id = u.id
+      WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
+    `, [chatId]);
+
+    if (userResult.rows.length === 0) {
+      client.release();
+      await bot.editMessageText('❌ Please connect first using /login', { chat_id: chatId, message_id: messageId });
+      return;
+    }
+
+    const user = userResult.rows[0];
+
+    // Activate the routine
+    const result = await client.query(`
+      UPDATE routine_templates
+      SET is_active = true, updated_at = CURRENT_TIMESTAMP
+      WHERE id = $1 AND user_id = $2
+      RETURNING name
+    `, [routineId, user.user_id]);
+
+    client.release();
+
+    if (result.rows.length === 0) {
+      await bot.editMessageText('❌ Routine not found or access denied', { chat_id: chatId, message_id: messageId });
+      return;
+    }
+
+    await bot.editMessageText(
+      `✅ *Routine Activated!*\n\n"${result.rows[0].name}" is now active and will be included in routine generation.`,
+      {
+        chat_id: chatId,
+        message_id: messageId,
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [[
+            { text: '🚀 Generate Now', callback_data: `generate_routine_now_${routineId}` },
+            { text: '⬅️ Back to Routines', callback_data: 'cmd_myroutines' }
+          ]]
+        }
+      }
+    );
+
+  } catch (error) {
+    console.error('Error activating routine:', error);
+    await bot.editMessageText('❌ Error activating routine', { chat_id: chatId, message_id: messageId });
+  }
+};
+
+// Helper function to deactivate routine
+const handleDeactivateRoutine = async (chatId, messageId, routineId) => {
+  try {
+    const client = await pool.connect();
+
+    // Get user info
+    const userResult = await client.query(`
+      SELECT utc.user_id, u.name
+      FROM user_telegram_config utc
+      JOIN users u ON utc.user_id = u.id
+      WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
+    `, [chatId]);
+
+    if (userResult.rows.length === 0) {
+      client.release();
+      await bot.editMessageText('❌ Please connect first using /login', { chat_id: chatId, message_id: messageId });
+      return;
+    }
+
+    const user = userResult.rows[0];
+
+    // Deactivate the routine
+    const result = await client.query(`
+      UPDATE routine_templates
+      SET is_active = false, updated_at = CURRENT_TIMESTAMP
+      WHERE id = $1 AND user_id = $2
+      RETURNING name
+    `, [routineId, user.user_id]);
+
+    client.release();
+
+    if (result.rows.length === 0) {
+      await bot.editMessageText('❌ Routine not found or access denied', { chat_id: chatId, message_id: messageId });
+      return;
+    }
+
+    await bot.editMessageText(
+      `⏸️ *Routine Deactivated!*\n\n"${result.rows[0].name}" is now inactive and will not be included in routine generation.`,
+      {
+        chat_id: chatId,
+        message_id: messageId,
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [[
+            { text: '▶️ Activate Again', callback_data: `activate_routine_${routineId}` },
+            { text: '⬅️ Back to Routines', callback_data: 'cmd_myroutines' }
+          ]]
+        }
+      }
+    );
+
+  } catch (error) {
+    console.error('Error deactivating routine:', error);
+    await bot.editMessageText('❌ Error deactivating routine', { chat_id: chatId, message_id: messageId });
   }
 };
 
