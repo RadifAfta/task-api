@@ -68,6 +68,8 @@ const setupBotCommands = async () => {
       { command: 'quick', description: '⚡ Quick task actions' },
       { command: 'addtask', description: '➕ Add task (interactive)' },
       { command: 'addroutine', description: '📋 Add routine (interactive)' },
+      { command: 'managetasks', description: '🛠️ Manage your tasks (edit/delete)' },
+      { command: 'manageroutines', description: '🛠️ Manage your routines (edit/delete)' },
       { command: 'mytasks', description: '📋 My tasks with actions' },
       { command: 'today', description: '📅 View today\'s tasks' },
       { command: 'complete', description: '✅ Mark task as done' },
@@ -895,6 +897,119 @@ Please send your task details in this format:
     } catch (error) {
       console.error('Error in today command:', error);
       await bot.sendMessage(chatId, '❌ Error fetching tasks. Please try again.');
+    }
+  });
+
+  // /managetasks - Quick manager for editing/deleting tasks (compact list)
+  bot.onText(/\/managetasks/, async (msg) => {
+    const chatId = msg.chat.id;
+
+    try {
+      const client = await pool.connect();
+
+      const result = await client.query(`
+        SELECT utc.user_id, u.name
+        FROM user_telegram_config utc
+        JOIN users u ON utc.user_id = u.id
+        WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
+      `, [chatId]);
+
+      if (result.rows.length === 0) {
+        client.release();
+        await bot.sendMessage(chatId, '❌ Please connect first using /login or /verify', { parse_mode: 'Markdown' });
+        return;
+      }
+
+      const user = result.rows[0];
+
+      const tasksResult = await client.query(`
+        SELECT id, title, priority, category, time_start, status
+        FROM tasks
+        WHERE user_id = $1
+        ORDER BY created_at DESC
+        LIMIT 20
+      `, [user.user_id]);
+
+      client.release();
+
+      if (tasksResult.rows.length === 0) {
+        await bot.sendMessage(chatId, '📋 No tasks found. Use /addtask to create one.', { parse_mode: 'Markdown' });
+        return;
+      }
+
+      // Build a compact list with edit/delete buttons
+      for (const task of tasksResult.rows) {
+        const emoji = task.priority === 'high' ? '🔴' : task.priority === 'medium' ? '🟡' : '🟢';
+        const timeInfo = task.time_start ? ` ⏰ ${task.time_start}` : '';
+        const text = `${emoji} *${task.title}*${timeInfo}\n_${task.category} | ${task.status}_`;
+
+        await bot.sendMessage(chatId, text, {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [[
+              { text: '✏️ Edit', callback_data: `task_edit_${task.id}` },
+              { text: '🗑️ Delete', callback_data: `task_delete_${task.id}` }
+            ]]
+          }
+        });
+      }
+
+    } catch (error) {
+      console.error('Error in managetasks command:', error);
+      await bot.sendMessage(chatId, '❌ Error fetching tasks. Please try again.');
+    }
+  });
+
+  // /manageroutines - Manage routine templates (edit / delete)
+  bot.onText(/\/manageroutines/, async (msg) => {
+    const chatId = msg.chat.id;
+
+    try {
+      const client = await pool.connect();
+
+      const result = await client.query(`
+        SELECT utc.user_id, u.name
+        FROM user_telegram_config utc
+        JOIN users u ON utc.user_id = u.id
+        WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
+      `, [chatId]);
+
+      if (result.rows.length === 0) {
+        client.release();
+        await bot.sendMessage(chatId, '❌ Please connect first using /login or /verify', { parse_mode: 'Markdown' });
+        return;
+      }
+
+      const user = result.rows[0];
+
+      // Load routines via model
+      const routineModel = await import('../models/routineModel.js');
+      const routines = await routineModel.getRoutineTemplatesByUser(user.user_id, { isActive: null, limit: 50 });
+
+      client.release();
+
+      if (!routines || routines.length === 0) {
+        await bot.sendMessage(chatId, '📋 No routines found. Use /createroutine to add one.', { parse_mode: 'Markdown' });
+        return;
+      }
+
+      for (const routine of routines) {
+        const text = `📋 *${routine.name}*\n_${routine.description || '(no description)'}_\nID: \`${routine.id}\``;
+        await bot.sendMessage(chatId, text, {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [[
+              { text: '✏️ Edit', callback_data: `routine_edit_${routine.id}` },
+              { text: '🗑️ Delete', callback_data: `routine_delete_${routine.id}` },
+              { text: '➕ Add Task', callback_data: `add_task_routine_${routine.id}` }
+            ]]
+          }
+        });
+      }
+
+    } catch (error) {
+      console.error('Error in manageroutines command:', error);
+      await bot.sendMessage(chatId, '❌ Error fetching routines. Please try again.');
     }
   });
 
@@ -2314,6 +2429,113 @@ Send your task info now, or /cancel to abort.
 
         // Clear previous routine creation state
         userStates.delete(chatId);
+      } else if (data.startsWith('routine_delete_')) {
+        // Ask for confirmation before deleting routine template
+        const routineId = data.replace('routine_delete_', '');
+        await bot.editMessageText('⚠️ Are you sure you want to delete this routine template? This cannot be undone.', {
+          chat_id: chatId,
+          message_id: messageId,
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [[
+              { text: '🗑️ Confirm Delete', callback_data: `confirm_delete_routine_${routineId}` },
+              { text: '❌ Cancel', callback_data: `cancel_delete_routine_${routineId}` }
+            ]]
+          }
+        });
+      } else if (data.startsWith('confirm_delete_routine_')) {
+        const routineId = data.replace('confirm_delete_routine_', '');
+        // Verify user and delete
+        const client = await pool.connect();
+        try {
+          const userRes = await client.query(`SELECT user_id FROM user_telegram_config WHERE telegram_chat_id = $1 AND is_verified = true`, [chatId]);
+          if (userRes.rows.length === 0) {
+            client.release();
+            await bot.editMessageText('❌ Not connected. Please /login or /verify first.', { chat_id: chatId, message_id: messageId });
+            return;
+          }
+          const userId = userRes.rows[0].user_id;
+          const routineModel = await import('../models/routineModel.js');
+          const deleted = await routineModel.deleteRoutineTemplate(routineId, userId);
+          client.release();
+
+          if (!deleted) {
+            await bot.editMessageText('⚠️ Routine not found or you do not have permission to delete it.', { chat_id: chatId, message_id: messageId });
+            return;
+          }
+
+          await bot.editMessageText('✅ Routine template deleted successfully.', { chat_id: chatId, message_id: messageId });
+        } catch (err) {
+          client.release();
+          console.error('Error deleting routine:', err);
+          await bot.sendMessage(chatId, '❌ Error deleting routine. Please try again.');
+        }
+      } else if (data.startsWith('cancel_delete_routine_')) {
+        await bot.editMessageText('❌ Routine deletion cancelled.', { chat_id: chatId, message_id: messageId });
+      } else if (data.startsWith('routine_edit_')) {
+        // Start interactive edit for routine template - show field selection
+        const routineId = data.replace('routine_edit_', '');
+        await handleRoutineEditStart(chatId, routineId);
+      } else if (data.startsWith('edit_title_')) {
+        // Edit task title
+        const taskId = data.replace('edit_title_', '');
+        await handleEditField(chatId, taskId, 'title', '📝 Send new title for this task:');
+      } else if (data.startsWith('edit_description_')) {
+        // Edit task description
+        const taskId = data.replace('edit_description_', '');
+        await handleEditField(chatId, taskId, 'description', '📄 Send new description for this task (or send "-" to remove):');
+      } else if (data.startsWith('edit_priority_')) {
+        // Edit task priority
+        const taskId = data.replace('edit_priority_', '');
+        await handleEditField(chatId, taskId, 'priority', '📊 Choose priority:', 'priority_buttons');
+      } else if (data.startsWith('edit_category_')) {
+        // Edit task category
+        const taskId = data.replace('edit_category_', '');
+        await handleEditField(chatId, taskId, 'category', '📁 Choose category:', 'category_buttons');
+      } else if (data.startsWith('edit_time_start_')) {
+        // Edit task start time
+        const taskId = data.replace('edit_time_start_', '');
+        await handleEditField(chatId, taskId, 'time_start', '⏰ Send new start time (HH:MM format, e.g., 09:00):');
+      } else if (data.startsWith('edit_time_end_')) {
+        // Edit task end time
+        const taskId = data.replace('edit_time_end_', '');
+        await handleEditField(chatId, taskId, 'time_end', '⏰ Send new end time (HH:MM format, e.g., 10:00) or send "-" to remove:');
+      } else if (data.startsWith('edit_status_')) {
+        // Edit task status
+        const taskId = data.replace('edit_status_', '');
+        await handleEditField(chatId, taskId, 'status', '📊 Choose status:', 'status_buttons');
+      } else if (data === 'cancel_edit') {
+        // Cancel edit
+        await bot.sendMessage(chatId, '❌ Edit cancelled.');
+      } else if (data.startsWith('set_priority_')) {
+        // Set priority from button
+        const parts = data.split('_');
+        const priority = parts[2];
+        const taskId = parts[3];
+        await handleFieldUpdate(chatId, taskId, 'priority', priority);
+      } else if (data.startsWith('set_category_')) {
+        // Set category from button
+        const parts = data.split('_');
+        const category = parts[2];
+        const taskId = parts[3];
+        await handleFieldUpdate(chatId, taskId, 'category', category);
+      } else if (data.startsWith('set_status_')) {
+        // Set status from button
+        const parts = data.split('_');
+        const status = parts[2];
+        const taskId = parts[3];
+        await handleFieldUpdate(chatId, taskId, 'status', status);
+      } else if (data.startsWith('edit_routine_name_')) {
+        // Edit routine name
+        const routineId = data.replace('edit_routine_name_', '');
+        await handleEditRoutineField(chatId, routineId, 'name', '📋 Send new name for this routine:');
+      } else if (data.startsWith('edit_routine_description_')) {
+        // Edit routine description
+        const routineId = data.replace('edit_routine_description_', '');
+        await handleEditRoutineField(chatId, routineId, 'description', '📄 Send new description for this routine (or send "-" to remove):');
+      } else if (data === 'cancel_routine_edit') {
+        // Cancel routine edit
+        await bot.sendMessage(chatId, '❌ Routine edit cancelled.');
       } else {
         // Unknown callback data
         console.log(`⚠️ Unknown callback data: ${data}`);
@@ -2387,6 +2609,21 @@ Send your task info now, or /cancel to abort.
     } else if (userState.action === 'awaiting_routine_task_input') {
       console.log(`✅ Processing routine task input for user ${chatId}`);
       await handleRoutineTaskInput(chatId, text, userState.userId, userState.routineId, userState.routineName);
+      userStates.delete(chatId);
+      console.log(`🗑️  State cleared for user ${chatId}`);
+    } else if (userState.action === 'awaiting_routine_edit') {
+      console.log(`✅ Processing routine edit for user ${chatId}`);
+      await handleRoutineEditInput(chatId, text, userState);
+      userStates.delete(chatId);
+      console.log(`🗑️  State cleared for user ${chatId}`);
+    } else if (userState.action === 'awaiting_routine_field_edit') {
+      console.log(`✅ Processing routine field edit for user ${chatId}`);
+      await handleRoutineFieldEditInput(chatId, text, userState);
+      userStates.delete(chatId);
+      console.log(`🗑️  State cleared for user ${chatId}`);
+    } else if (userState.action === 'awaiting_field_edit') {
+      console.log(`✅ Processing field edit for user ${chatId}`);
+      await handleFieldEditInput(chatId, text, userState);
       userStates.delete(chatId);
       console.log(`🗑️  State cleared for user ${chatId}`);
     } else if (userState.action === 'awaiting_password') {
@@ -2486,14 +2723,7 @@ const handleTaskEditStart = async (chatId, taskId) => {
 
     const task = taskResult.rows[0];
 
-    // Set edit state
-    userStates.set(chatId, {
-      action: 'awaiting_task_edit',
-      userId: user.user_id,
-      taskId: taskId,
-      currentTask: task
-    });
-
+    // Show current task and edit options
     const message = `
 ✏️ *Edit Task*
 
@@ -2505,23 +2735,480 @@ const handleTaskEditStart = async (chatId, taskId) => {
 ⏰ *Time:* ${task.time_start || '(none)'}${task.time_end ? ` - ${task.time_end}` : ''}
 📊 *Status:* ${task.status}
 
-*How to edit:*
-Send the new task details in this format:
-\`Title | Desc | Priority | Category | TimeStart | TimeEnd | Status\`
-
-*Example:*
-\`${task.title} | ${task.description || 'Updated description'} | high | work | 09:00 | 10:00 | in_progress\`
-
-💡 *Tip:* You can leave any field unchanged by using the current value, or use "-" to keep it as is.
-
-Send your edit now, or /cancel to abort.
+What would you like to edit?
     `;
 
-    await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+    const keyboard = {
+      inline_keyboard: [
+        [
+          { text: '📝 Title', callback_data: `edit_title_${taskId}` },
+          { text: '📄 Description', callback_data: `edit_description_${taskId}` }
+        ],
+        [
+          { text: '📊 Priority', callback_data: `edit_priority_${taskId}` },
+          { text: '📁 Category', callback_data: `edit_category_${taskId}` }
+        ],
+        [
+          { text: '⏰ Start Time', callback_data: `edit_time_start_${taskId}` },
+          { text: '⏰ End Time', callback_data: `edit_time_end_${taskId}` }
+        ],
+        [
+          { text: '📊 Status', callback_data: `edit_status_${taskId}` },
+          { text: '❌ Cancel', callback_data: 'cancel_edit' }
+        ]
+      ]
+    };
+
+    await bot.sendMessage(chatId, message, { 
+      parse_mode: 'Markdown',
+      reply_markup: keyboard
+    });
 
   } catch (error) {
     console.error('Error starting task edit:', error);
     await bot.sendMessage(chatId, '❌ Error starting edit');
+  }
+};
+
+// Helper function to start routine edit
+const handleRoutineEditStart = async (chatId, routineId) => {
+  try {
+    const client = await pool.connect();
+
+    // Get user info
+    const userResult = await client.query(`
+      SELECT utc.user_id, u.name
+      FROM user_telegram_config utc
+      JOIN users u ON utc.user_id = u.id
+      WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
+    `, [chatId]);
+
+    if (userResult.rows.length === 0) {
+      client.release();
+      await bot.sendMessage(chatId, '❌ Please connect first using /login');
+      return;
+    }
+
+    const user = userResult.rows[0];
+
+    // Get routine
+    const routineResult = await client.query(`
+      SELECT * FROM routine_templates
+      WHERE id = $1 AND user_id = $2
+    `, [routineId, user.user_id]);
+
+    client.release();
+
+    if (routineResult.rows.length === 0) {
+      await bot.sendMessage(chatId, '❌ Routine not found');
+      return;
+    }
+
+    const routine = routineResult.rows[0];
+
+    // Show current routine and edit options
+    const message = `
+✏️ *Edit Routine*
+
+*Current Routine:*
+📋 *Name:* ${routine.name}
+📄 *Description:* ${routine.description || '(none)'}
+
+What would you like to edit?
+    `;
+
+    const keyboard = {
+      inline_keyboard: [
+        [
+          { text: '📋 Name', callback_data: `edit_routine_name_${routineId}` },
+          { text: '📄 Description', callback_data: `edit_routine_description_${routineId}` }
+        ],
+        [
+          { text: '❌ Cancel', callback_data: 'cancel_routine_edit' }
+        ]
+      ]
+    };
+
+    await bot.sendMessage(chatId, message, { 
+      parse_mode: 'Markdown',
+      reply_markup: keyboard
+    });
+
+  } catch (error) {
+    console.error('Error starting routine edit:', error);
+    await bot.sendMessage(chatId, '❌ Error starting edit');
+  }
+};
+
+// Helper function to handle field-specific editing
+const handleEditField = async (chatId, taskId, field, promptMessage, buttonType = null) => {
+  try {
+    const client = await pool.connect();
+
+    // Get user info
+    const userResult = await client.query(`
+      SELECT utc.user_id, u.name
+      FROM user_telegram_config utc
+      JOIN users u ON utc.user_id = u.id
+      WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
+    `, [chatId]);
+
+    if (userResult.rows.length === 0) {
+      client.release();
+      await bot.sendMessage(chatId, '❌ Please connect first using /login');
+      return;
+    }
+
+    const user = userResult.rows[0];
+
+    // Get current task
+    const taskResult = await client.query(`
+      SELECT * FROM tasks
+      WHERE id = $1 AND user_id = $2
+    `, [taskId, user.user_id]);
+
+    client.release();
+
+    if (taskResult.rows.length === 0) {
+      await bot.sendMessage(chatId, '❌ Task not found');
+      return;
+    }
+
+    const task = taskResult.rows[0];
+
+    // Set state for field editing
+    userStates.set(chatId, {
+      action: 'awaiting_field_edit',
+      userId: user.user_id,
+      taskId: taskId,
+      field: field,
+      currentTask: task
+    });
+
+    // Handle different field types
+    if (buttonType === 'priority_buttons') {
+      const keyboard = {
+        inline_keyboard: [
+          [
+            { text: '🔴 High', callback_data: `set_priority_high_${taskId}` },
+            { text: '🟡 Medium', callback_data: `set_priority_medium_${taskId}` },
+            { text: '🟢 Low', callback_data: `set_priority_low_${taskId}` }
+          ]
+        ]
+      };
+      await bot.sendMessage(chatId, `${promptMessage}\n\n*Current:* ${task.priority}`, {
+        parse_mode: 'Markdown',
+        reply_markup: keyboard
+      });
+    } else if (buttonType === 'category_buttons') {
+      const keyboard = {
+        inline_keyboard: [
+          [
+            { text: '💼 Work', callback_data: `set_category_work_${taskId}` },
+            { text: '📚 Learn', callback_data: `set_category_learn_${taskId}` },
+            { text: '🧘 Rest', callback_data: `set_category_rest_${taskId}` }
+          ]
+        ]
+      };
+      await bot.sendMessage(chatId, `${promptMessage}\n\n*Current:* ${task.category}`, {
+        parse_mode: 'Markdown',
+        reply_markup: keyboard
+      });
+    } else if (buttonType === 'status_buttons') {
+      const keyboard = {
+        inline_keyboard: [
+          [
+            { text: '📋 Pending', callback_data: `set_status_pending_${taskId}` },
+            { text: '🔄 In Progress', callback_data: `set_status_in_progress_${taskId}` },
+            { text: '✅ Done', callback_data: `set_status_done_${taskId}` }
+          ]
+        ]
+      };
+      await bot.sendMessage(chatId, `${promptMessage}\n\n*Current:* ${task.status}`, {
+        parse_mode: 'Markdown',
+        reply_markup: keyboard
+      });
+    } else {
+      // Text input fields
+      await bot.sendMessage(chatId, `${promptMessage}\n\n*Current:* ${task[field] || '(none)'}\n\nSend /cancel to abort.`, {
+        parse_mode: 'Markdown'
+      });
+    }
+
+  } catch (error) {
+    console.error('Error handling field edit:', error);
+    await bot.sendMessage(chatId, '❌ Error starting field edit');
+  }
+};
+
+// Helper function to update a specific field
+const handleFieldUpdate = async (chatId, taskId, field, value) => {
+  try {
+    const client = await pool.connect();
+
+    // Get user info
+    const userResult = await client.query(`
+      SELECT utc.user_id, u.name
+      FROM user_telegram_config utc
+      JOIN users u ON utc.user_id = u.id
+      WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
+    `, [chatId]);
+
+    if (userResult.rows.length === 0) {
+      client.release();
+      await bot.sendMessage(chatId, '❌ Please connect first using /login');
+      return;
+    }
+
+    const user = userResult.rows[0];
+
+    // Handle special cases for value processing
+    let processedValue = value;
+    if (field === 'description' && value === '-') {
+      processedValue = null;
+    } else if (field === 'time_end' && value === '-') {
+      processedValue = null;
+    }
+
+    // Update the field
+    const updateResult = await client.query(`
+      UPDATE tasks
+      SET ${field} = $1, updated_at = CURRENT_TIMESTAMP
+      WHERE id = $2 AND user_id = $3
+      RETURNING *
+    `, [processedValue, taskId, user.user_id]);
+
+    client.release();
+
+    if (updateResult.rows.length === 0) {
+      await bot.sendMessage(chatId, '❌ Task not found or update failed');
+      return;
+    }
+
+    const updatedTask = updateResult.rows[0];
+
+    // Handle reminder updates if time changed (optional - can be handled by scheduler)
+    // Note: Reminder updates are handled automatically by the scheduler service
+
+    // Send success message
+    const fieldEmoji = {
+      title: '📝',
+      description: '📄',
+      priority: '📊',
+      category: '📁',
+      time_start: '⏰',
+      time_end: '⏰',
+      status: '📊'
+    };
+
+    const fieldName = {
+      title: 'Title',
+      description: 'Description',
+      priority: 'Priority',
+      category: 'Category',
+      time_start: 'Start Time',
+      time_end: 'End Time',
+      status: 'Status'
+    };
+
+    await bot.sendMessage(chatId,
+      `✅ *${fieldName[field]} Updated Successfully!*\n\n` +
+      `${fieldEmoji[field]} ${fieldName[field]}: ${processedValue || '(removed)'}\n\n` +
+      `📋 *Task:* ${updatedTask.title}`,
+      { parse_mode: 'Markdown' }
+    );
+
+  } catch (error) {
+    console.error('Error updating field:', error);
+    await bot.sendMessage(chatId, '❌ Error updating field. Please try again.');
+  }
+};
+
+// Helper function to handle field edit input
+const handleFieldEditInput = async (chatId, text, userState) => {
+  const { field, taskId } = userState;
+
+  try {
+    let value = text.trim();
+
+    // Validate input based on field type
+    if (field === 'title') {
+      if (!value) {
+        await bot.sendMessage(chatId, '❌ Title cannot be empty. Please try again.');
+        return;
+      }
+    } else if (field === 'description') {
+      // Allow empty description (will be set to null)
+      value = value === '-' ? null : value;
+    } else if (field === 'time_start' || field === 'time_end') {
+      if (field === 'time_end' && value === '-') {
+        value = null;
+      } else {
+        const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
+        if (!timeRegex.test(value)) {
+          await bot.sendMessage(chatId, '❌ Invalid time format. Please use HH:MM format (e.g., 09:00).');
+          return;
+        }
+      }
+    }
+
+    // Update the field
+    await handleFieldUpdate(chatId, taskId, field, value);
+
+  } catch (error) {
+    console.error('Error processing field edit input:', error);
+    await bot.sendMessage(chatId, '❌ Error processing input. Please try again.');
+  }
+};
+
+// Helper function to handle routine field-specific editing
+const handleEditRoutineField = async (chatId, routineId, field, promptMessage) => {
+  try {
+    const client = await pool.connect();
+
+    // Get user info
+    const userResult = await client.query(`
+      SELECT utc.user_id, u.name
+      FROM user_telegram_config utc
+      JOIN users u ON utc.user_id = u.id
+      WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
+    `, [chatId]);
+
+    if (userResult.rows.length === 0) {
+      client.release();
+      await bot.sendMessage(chatId, '❌ Please connect first using /login');
+      return;
+    }
+
+    const user = userResult.rows[0];
+
+    // Get current routine
+    const routineResult = await client.query(`
+      SELECT * FROM routine_templates
+      WHERE id = $1 AND user_id = $2
+    `, [routineId, user.user_id]);
+
+    client.release();
+
+    if (routineResult.rows.length === 0) {
+      await bot.sendMessage(chatId, '❌ Routine not found');
+      return;
+    }
+
+    const routine = routineResult.rows[0];
+
+    // Set state for routine field editing
+    userStates.set(chatId, {
+      action: 'awaiting_routine_field_edit',
+      userId: user.user_id,
+      routineId: routineId,
+      field: field,
+      currentRoutine: routine
+    });
+
+    // Text input fields
+    await bot.sendMessage(chatId, `${promptMessage}\n\n*Current:* ${routine[field] || '(none)'}\n\nSend /cancel to abort.`, {
+      parse_mode: 'Markdown'
+    });
+
+  } catch (error) {
+    console.error('Error handling routine field edit:', error);
+    await bot.sendMessage(chatId, '❌ Error starting routine field edit');
+  }
+};
+
+// Helper function to update a specific routine field
+const handleRoutineFieldUpdate = async (chatId, routineId, field, value) => {
+  try {
+    const client = await pool.connect();
+
+    // Get user info
+    const userResult = await client.query(`
+      SELECT utc.user_id, u.name
+      FROM user_telegram_config utc
+      JOIN users u ON utc.user_id = u.id
+      WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
+    `, [chatId]);
+
+    if (userResult.rows.length === 0) {
+      client.release();
+      await bot.sendMessage(chatId, '❌ Please connect first using /login');
+      return;
+    }
+
+    const user = userResult.rows[0];
+
+    // Handle special cases for value processing
+    let processedValue = value;
+    if (field === 'description' && value === '-') {
+      processedValue = null;
+    }
+
+    // Update the field
+    const updateResult = await client.query(`
+      UPDATE routine_templates
+      SET ${field} = $1, updated_at = CURRENT_TIMESTAMP
+      WHERE id = $2 AND user_id = $3
+      RETURNING *
+    `, [processedValue, routineId, user.user_id]);
+
+    client.release();
+
+    if (updateResult.rows.length === 0) {
+      await bot.sendMessage(chatId, '❌ Routine not found or update failed');
+      return;
+    }
+
+    const updatedRoutine = updateResult.rows[0];
+
+    // Send success message
+    const fieldEmoji = {
+      name: '📋',
+      description: '📄'
+    };
+
+    const fieldName = {
+      name: 'Name',
+      description: 'Description'
+    };
+
+    await bot.sendMessage(chatId,
+      `✅ *${fieldName[field]} Updated Successfully!*\n\n` +
+      `${fieldEmoji[field]} ${fieldName[field]}: ${processedValue || '(removed)'}\n\n` +
+      `📋 *Routine:* ${updatedRoutine.name}`,
+      { parse_mode: 'Markdown' }
+    );
+
+  } catch (error) {
+    console.error('Error updating routine field:', error);
+    await bot.sendMessage(chatId, '❌ Error updating routine field. Please try again.');
+  }
+};
+
+// Helper function to handle routine field edit input
+const handleRoutineFieldEditInput = async (chatId, text, userState) => {
+  const { field, routineId } = userState;
+
+  try {
+    let value = text.trim();
+
+    // Validate input based on field type
+    if (field === 'name') {
+      if (!value) {
+        await bot.sendMessage(chatId, '❌ Routine name cannot be empty. Please try again.');
+        return;
+      }
+    } else if (field === 'description') {
+      // Allow empty description (will be set to null)
+      value = value === '-' ? null : value;
+    }
+
+    // Update the field
+    await handleRoutineFieldUpdate(chatId, routineId, field, value);
+
+  } catch (error) {
+    console.error('Error processing routine field edit input:', error);
+    await bot.sendMessage(chatId, '❌ Error processing input. Please try again.');
   }
 };
 
@@ -3060,6 +3747,35 @@ const createRoutineFromInteractive = async (chatId, routineData, userId) => {
     console.error('Error creating routine from interactive input:', error);
     await bot.sendMessage(chatId, '❌ Error creating routine. Please try again.');
     return null;
+  }
+};
+
+// Helper function to handle routine edit input
+const handleRoutineEditInput = async (chatId, text, userState) => {
+  const { routineId, userId } = userState;
+
+  try {
+    const parts = text.split('|').map(p => p.trim());
+    const name = parts[0] || null;
+    const description = parts.slice(1).join(' | ') || null;
+
+    const routineModel = await import('../models/routineModel.js');
+
+    const updated = await routineModel.updateRoutineTemplate(routineId, userId, {
+      name: name === '' ? null : name,
+      description: description === '' ? null : description
+    });
+
+    if (!updated) {
+      await bot.sendMessage(chatId, '⚠️ Routine not found or you do not have permission to edit it.');
+      return;
+    }
+
+    await bot.sendMessage(chatId, `✅ Routine updated!\n*${updated.name}*\n_${updated.description || ''}_`, { parse_mode: 'Markdown' });
+
+  } catch (err) {
+    console.error('Error updating routine:', err);
+    await bot.sendMessage(chatId, '❌ Error updating routine. Please try again.');
   }
 };
 
