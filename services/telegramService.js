@@ -11,6 +11,8 @@ let isInitialized = false;
 const userStates = new Map();
 // Map to indicate that the next interactive /addtask for a chat should be attached to a routine
 const routineAttachMap = new Map();
+// Store login timeouts
+const loginTimeouts = new Map();
 
 /**
  * Telegram Bot Service for LifePath Smart Reminder System
@@ -34,19 +36,19 @@ export const initializeTelegramBot = () => {
 
   try {
     // Create bot instance with polling
-    bot = new TelegramBot(token, { 
+    bot = new TelegramBot(token, {
       polling: true,
       filepath: false // Disable file download for security
     });
 
     console.log('🤖 Telegram Bot initialized successfully');
-    
+
     // Set bot commands menu
     setupBotCommands();
-    
+
     // Setup bot command handlers
     setupBotHandlers();
-    
+
     isInitialized = true;
     return bot;
 
@@ -60,10 +62,12 @@ export const initializeTelegramBot = () => {
 const setupBotCommands = async () => {
   if (!bot) return;
 
-    try {
+  try {
     await bot.setMyCommands([
       { command: 'start', description: '🌟 Welcome message & setup guide' },
+      { command: 'register', description: '📝 Register new LifePath account' },
       { command: 'login', description: '🔐 Login with email & password' },
+      { command: 'logout', description: '🚪 Disconnect from LifePath' },
       { command: 'verify', description: '✅ Verify with code from app' },
       { command: 'quick', description: '⚡ Quick task actions' },
       { command: 'addtask', description: '➕ Add task (interactive)' },
@@ -74,13 +78,175 @@ const setupBotCommands = async () => {
       { command: 'today', description: '📅 View today\'s tasks' },
       { command: 'complete', description: '✅ Mark task as done' },
       { command: 'myroutines', description: '📋 View my routines' },
-      { command: 'status', description: '� Check connection & settings' },
+      { command: 'status', description: 'ℹ️ Check connection & settings' },
       { command: 'menu', description: '📋 Show command menu' }
     ]);
 
     console.log('✅ Telegram Bot command menu registered');
   } catch (error) {
     console.error('❌ Failed to set bot commands:', error);
+  }
+};
+
+// Process registration input
+const processRegistration = async (chatId, input) => {
+  try {
+    // Parse registration input (Name | Email | Password)
+    const parts = input.split('|').map(part => part.trim());
+
+    if (parts.length !== 3) {
+      await bot.sendMessage(chatId,
+        '❌ *Invalid Format*\n\n' +
+        'Please use this format:\n' +
+        '`Name | Email | Password`\n\n' +
+        '*Example:*\n' +
+        '`Radif Aftamaulana | radifam12@gmail.com | mypassword123`\n\n' +
+        'Try again with /register Name | Email | Password.',
+        { parse_mode: 'Markdown' }
+      );
+      return;
+    }
+
+    const [name, email, password] = parts;
+
+    // Validate inputs
+    if (name.length < 2 || name.length > 100) {
+      await bot.sendMessage(chatId,
+        '❌ *Invalid Name*\n\n' +
+        'Name must be 2-100 characters long.\n' +
+        'Please try again.',
+        { parse_mode: 'Markdown' }
+      );
+      return;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      await bot.sendMessage(chatId,
+        '❌ *Invalid Email*\n\n' +
+        'Please provide a valid email address.\n' +
+        'Please try again.',
+        { parse_mode: 'Markdown' }
+      );
+      return;
+    }
+
+    if (password.length < 6) {
+      await bot.sendMessage(chatId,
+        '❌ *Password Too Short*\n\n' +
+        'Password must be at least 6 characters long.\n' +
+        'Please try again.',
+        { parse_mode: 'Markdown' }
+      );
+      return;
+    }
+
+    // Check if email already exists (case-insensitive)
+    const client = await pool.connect();
+    const existingUser = await client.query(
+      'SELECT id FROM users WHERE LOWER(email) = LOWER($1)',
+      [email]
+    );
+
+    if (existingUser.rows.length > 0) {
+      await bot.sendMessage(chatId,
+        '❌ *Email Already Registered*\n\n' +
+        'This email is already registered in LifePath.\n' +
+        'Use /login to connect your existing account.',
+        { parse_mode: 'Markdown' }
+      );
+      client.release();
+      return;
+    }
+
+    // Check if telegram chat_id already exists
+    const existingTelegramConfig = await client.query(
+      'SELECT user_id FROM user_telegram_config WHERE telegram_chat_id = $1',
+      [chatId]
+    );
+
+    if (existingTelegramConfig.rows.length > 0) {
+      await bot.sendMessage(chatId,
+        '❌ *Telegram Chat Already Registered*\n\n' +
+        'This Telegram chat is already linked to an account.\n' +
+        'Use /login to connect or /logout to disconnect.',
+        { parse_mode: 'Markdown' }
+      );
+      client.release();
+      return;
+    }
+
+    // Hash password
+    const bcrypt = await import('bcryptjs');
+    const hashedPassword = await bcrypt.default.hash(password, 10);
+
+    // Create new user
+    const newUserResult = await client.query(`
+      INSERT INTO users (name, email, password_hash)
+      VALUES ($1, $2, $3)
+      RETURNING id, name, email
+    `, [name, email.toLowerCase(), hashedPassword]);
+
+    const newUser = newUserResult.rows[0];
+
+    // Create telegram config for the new user
+    await client.query(`
+      INSERT INTO user_telegram_config (user_id, telegram_chat_id, telegram_username, is_verified, is_active)
+      VALUES ($1, $2, $3, true, true)
+    `, [newUser.id, chatId, null]); // username will be null for now
+
+    // Create default reminder settings
+    await client.query(`
+      INSERT INTO reminder_settings (user_id)
+      VALUES ($1)
+      ON CONFLICT (user_id) DO NOTHING
+    `, [newUser.id]);
+
+    client.release();
+
+    const successMessage = `
+✅ *Registration Successful!*
+
+Welcome to LifePath, ${newUser.name}! 🎉
+
+Your account has been created and your Telegram is automatically connected.
+
+*Your Account Details:*
+• *Name:* ${newUser.name}
+• *Email:* ${newUser.email}
+• *Status:* ✅ Verified & Connected
+
+*You'll receive:*
+• ⏰ Task reminders before start time
+• 📊 Daily task summaries
+• 🎯 Routine generation notices
+• ⚠️ Overdue task alerts
+
+*What's Next?*
+• Use /addtask to create your first task
+• Use /status to check your settings
+• Configure preferences in the LifePath app
+
+Let's make your day productive! 💪
+    `;
+
+    await bot.sendMessage(chatId, successMessage, { parse_mode: 'Markdown' });
+
+  } catch (error) {
+    console.error('Error in registration process:', error);
+
+    // Handle specific database errors
+    let errorMessage = '❌ An error occurred during registration.\nPlease try /register again.';
+
+    if (error.code === '23505') { // Unique constraint violation
+      if (error.constraint === 'users_email_key') {
+        errorMessage = '❌ *Email Already Registered*\n\nThis email is already registered in LifePath.\nUse /login to connect your existing account.';
+      } else if (error.constraint?.includes('user_telegram_config_user_id')) {
+        errorMessage = '❌ *Account Already Connected*\n\nThis account is already connected to another Telegram.\nUse /login to connect from this Telegram.';
+      }
+    }
+
+    await bot.sendMessage(chatId, errorMessage, { parse_mode: 'Markdown' });
   }
 };
 
@@ -100,13 +266,17 @@ Hello ${username}! 👋
 
 I'm your personal task reminder assistant. I'll help you stay on track with your daily tasks and routines.
 
-*Two Ways to Connect:*
+*Three Ways to Get Started:*
 
-*Option 1: Connect from App* 📱
+*Option 1: New User? Register Here!* 📝
+1. Use \`/register\` to create new account
+2. Set up your profile instantly
+
+*Option 2: Connect from App* 📱
 1. Get verification code from LifePath app
 2. Use \`/verify <code>\` here to link
 
-*Option 2: Connect from Telegram* 💬
+*Option 3: Connect from Telegram* 💬
 1. Use \`/login <email>\` command
 2. Enter your LifePath password when prompted
 3. Get instant verification!
@@ -129,20 +299,189 @@ Tap any button below or type the command:
           { text: '📅 Today\'s Tasks', callback_data: 'cmd_today' }
         ],
         [
-          { text: '🔐 Login', callback_data: 'cmd_login' },
-          { text: '📊 Status', callback_data: 'cmd_status' }
+          { text: '📝 Register', callback_data: 'cmd_register' },
+          { text: '🔐 Login', callback_data: 'cmd_login' }
         ],
         [
-          { text: '📚 Help', callback_data: 'cmd_help' },
+          { text: '📊 Status', callback_data: 'cmd_status' },
           { text: '📋 Menu', callback_data: 'cmd_menu' }
         ]
       ]
     };
 
-    await bot.sendMessage(chatId, welcomeMessage, { 
+    await bot.sendMessage(chatId, welcomeMessage, {
       parse_mode: 'Markdown',
       reply_markup: keyboard
     });
+  });
+
+  // /register command - Interactive registration
+  bot.onText(/\/register$/, async (msg) => {
+    const chatId = msg.chat.id;
+    const username = msg.from.username || msg.from.first_name;
+
+    // Check if already registered
+    try {
+      const client = await pool.connect();
+      const existing = await client.query(
+        'SELECT user_id FROM user_telegram_config WHERE telegram_chat_id = $1',
+        [chatId]
+      );
+      client.release();
+
+      if (existing.rows.length > 0) {
+        await bot.sendMessage(chatId,
+          '❌ *Already Registered*\n\n' +
+          'This Telegram chat is already connected to a LifePath account.\n' +
+          'Use /login to connect a different account or /logout first.',
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+    } catch (error) {
+      console.error('Error checking registration:', error);
+    }
+
+    // Start interactive registration
+    await bot.sendMessage(chatId,
+      `📝 *LifePath Registration*\n\n` +
+      `Welcome ${username}! Let's create your account.\n\n` +
+      `*Step 1 of 3:* What's your full name?\n\n` +
+      `*Example:* Radif Aftamaulana\n\n` +
+      `⏰ *Timeout:* You have 5 minutes for each step.`,
+      { parse_mode: 'Markdown' }
+    );
+
+    // Set state for name input
+    userStates.set(chatId, {
+      action: 'awaiting_registration_name',
+      timestamp: Date.now()
+    });
+
+    // Set timeout
+    const timeout = setTimeout(async () => {
+      try {
+        await bot.sendMessage(chatId,
+          '⏰ *Registration Timeout*\n\n' +
+          'Registration session expired.\n' +
+          'Use /register to start again.',
+          { parse_mode: 'Markdown' }
+        );
+      } catch (error) {
+        console.error('Error sending timeout message:', error);
+      }
+      userStates.delete(chatId);
+    }, 5 * 60 * 1000); // 5 minutes
+
+    userStates.get(chatId).timeoutId = timeout;
+  });
+
+  // /register with direct input - for quick registration
+  bot.onText(/\/register (.+)/, async (msg) => {
+    const chatId = msg.chat.id;
+    const input = msg.text.substring(10).trim(); // Remove "/register "
+
+    console.log(`📝 Processing quick registration input: ${input}`);
+    await processRegistration(chatId, input);
+  });
+
+  // /logout command - Disconnect from LifePath
+  bot.onText(/\/logout/, async (msg) => {
+    const chatId = msg.chat.id;
+    const username = msg.from.username || msg.from.first_name;
+
+    try {
+      const client = await pool.connect();
+
+      // Check if user is currently connected
+      const result = await client.query(`
+        SELECT utc.*, u.name, u.email
+        FROM user_telegram_config utc
+        JOIN users u ON utc.user_id = u.id
+        WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
+      `, [chatId]);
+
+      if (result.rows.length === 0) {
+        await bot.sendMessage(chatId,
+          '❌ *Not Connected*\n\n' +
+          `Hello ${username}! You are not currently connected to any LifePath account.\n\n` +
+          'Use /login or /register to connect your account.',
+          { parse_mode: 'Markdown' }
+        );
+        client.release();
+        return;
+      }
+
+      const userConfig = result.rows[0];
+
+      // Confirm logout with user
+      const confirmMessage = await bot.sendMessage(chatId,
+        `🚪 *Confirm Logout*\n\n` +
+        `Are you sure you want to disconnect **${userConfig.name}** (${userConfig.email}) from this Telegram account?\n\n` +
+        `⚠️ *What will happen:*\n` +
+        `• You will stop receiving task reminders\n` +
+        `• You will stop receiving daily summaries\n` +
+        `• You can reconnect anytime with /login\n\n` +
+        `Tap the button below to confirm:`,
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: '✅ Yes, Logout', callback_data: 'confirm_logout' },
+                { text: '❌ Cancel', callback_data: 'cancel_logout' }
+              ]
+            ]
+          }
+        }
+      );
+
+      // Store logout confirmation state
+      userStates.set(chatId, {
+        action: 'awaiting_logout_confirmation',
+        userId: userConfig.user_id,
+        userName: userConfig.name,
+        userEmail: userConfig.email,
+        messageId: confirmMessage.message_id,
+        timestamp: Date.now()
+      });
+
+      console.log(`🚪 Logout confirmation sent for ${chatId} (${userConfig.email})`);
+
+      // Set timeout for logout confirmation (1 minute)
+      const logoutTimeout = setTimeout(async () => {
+        try {
+          const currentState = userStates.get(chatId);
+          if (currentState && currentState.action === 'awaiting_logout_confirmation') {
+            await bot.editMessageText(
+              '⏰ *Logout Confirmation Timeout*\n\n' +
+              'Logout confirmation expired for security reasons.\n' +
+              'Use /logout again if you want to disconnect.',
+              {
+                chat_id: chatId,
+                message_id: currentState.messageId,
+                parse_mode: 'Markdown'
+              }
+            );
+            userStates.delete(chatId);
+          }
+        } catch (error) {
+          console.error('Error sending logout timeout message:', error);
+        }
+      }, 1 * 60 * 1000); // 1 minute
+
+      // Store timeout reference
+      userStates.get(chatId).timeoutId = logoutTimeout;
+
+      client.release();
+
+    } catch (error) {
+      console.error('Error in logout command:', error);
+      await bot.sendMessage(chatId,
+        '❌ An error occurred. Please try again.',
+        { parse_mode: 'Markdown' }
+      );
+    }
   });
 
   // /menu command - Show command menu with buttons
@@ -155,7 +494,9 @@ Tap any button below or type the command:
 Select a command below or type it manually:
 
 *Connection:*
+• \`/register\` - Register new LifePath account
 • \`/login <email>\` - Login with email & password
+• \`/logout\` - Disconnect from LifePath account
 • \`/verify <code>\` - Verify with app code
 
 *Tasks:*
@@ -197,11 +538,14 @@ Use the buttons below for quick access! 👇
           { text: '📊 Check Status', callback_data: 'cmd_status' }
         ],
         [
-          { text: '🔐 Login Guide', callback_data: 'guide_login' },
-          { text: '✅ Verify Guide', callback_data: 'guide_verify' }
+          { text: '🚪 Logout', callback_data: 'cmd_logout' },
+          { text: '🔐 Login Guide', callback_data: 'guide_login' }
         ],
         [
-          { text: '📚 Help & Docs', callback_data: 'cmd_help' },
+          { text: '✅ Verify Guide', callback_data: 'guide_verify' },
+          { text: '📚 Help & Docs', callback_data: 'cmd_help' }
+        ],
+        [
           { text: '🔄 Refresh Menu', callback_data: 'cmd_menu' }
         ]
       ]
@@ -213,10 +557,76 @@ Use the buttons below for quick access! 👇
     });
   });
 
-  // /login command - Login and generate code directly from Telegram
-  bot.onText(/\/login (.+)/, async (msg, match) => {
+  // /login command - Interactive login
+  bot.onText(/\/login$/, async (msg) => {
     const chatId = msg.chat.id;
-    const email = match[1].trim().toLowerCase();
+    console.log(`🔐 Login command received from ${chatId}`);
+
+    // Check if already logged in
+    try {
+      const client = await pool.connect();
+      const existing = await client.query(
+        'SELECT user_id FROM user_telegram_config WHERE telegram_chat_id = $1 AND is_verified = true',
+        [chatId]
+      );
+      client.release();
+
+      if (existing.rows.length > 0) {
+        await bot.sendMessage(chatId,
+          '✅ *Already Logged In*\n\n' +
+          'You are already connected to LifePath.\n' +
+          'Use /status to check your account or /logout to disconnect.',
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+    } catch (error) {
+      console.error('Error checking login status:', error);
+    }
+
+    // Start interactive login
+    await bot.sendMessage(chatId,
+      `🔐 *LifePath Login*\n\n` +
+      `Please enter your LifePath email address:\n\n` +
+      `*Example:* john@example.com\n\n` +
+      `⏰ *Timeout:* You have 5 minutes.`,
+      { parse_mode: 'Markdown' }
+    );
+
+    // Set state for email input
+    userStates.set(chatId, {
+      action: 'awaiting_login_email',
+      timestamp: Date.now()
+    });
+
+    // Set timeout
+    const timeout = setTimeout(async () => {
+      try {
+        await bot.sendMessage(chatId,
+          '⏰ *Login Timeout*\n\n' +
+          'Login session expired.\n' +
+          'Use /login to try again.',
+          { parse_mode: 'Markdown' }
+        );
+      } catch (error) {
+        console.error('Error sending timeout message:', error);
+      }
+      userStates.delete(chatId);
+    }, 5 * 60 * 1000); // 5 minutes
+
+    userStates.get(chatId).timeoutId = timeout;
+  });
+
+  // /login with email - Direct login
+  bot.onText(/\/login (.+)/, async (msg) => {
+    const chatId = msg.chat.id;
+    const email = msg.text.substring(7).trim().toLowerCase(); // Remove "/login "
+
+    await processLogin(chatId, email);
+  });
+
+  // Process login with email
+  const processLogin = async (chatId, email) => {
 
     try {
       const client = await pool.connect();
@@ -244,120 +654,48 @@ Use the buttons below for quick access! 👇
       await bot.sendMessage(chatId,
         `🔐 *Password Required*\n\n` +
         `Please send your LifePath password for ${email}\n\n` +
-        `⚠️ *Security Note:* Send password in next message.\n` +
-        `I'll delete it immediately after verification.`,
+        `⚠️ *Security:* Password will be deleted from chat immediately.\n\n` +
+        `⏰ *Timeout:* You have 5 minutes.`,
         { parse_mode: 'Markdown' }
       );
 
-      // Store pending login state
-      await client.query(`
-        UPDATE user_telegram_config
-        SET telegram_chat_id = $1,
-            telegram_username = $2,
-            updated_at = CURRENT_TIMESTAMP
-        WHERE user_id = $3
-      `, [chatId, msg.from.username, user.id]);
+      // Set state for password input
+      userStates.set(chatId, {
+        action: 'awaiting_login_password',
+        userId: user.id,
+        userName: user.name,
+        userEmail: user.email,
+        passwordHash: user.password_hash,
+        timestamp: Date.now()
+      });
 
       client.release();
 
-      // Set up one-time message handler for password
-      const passwordHandler = async (passwordMsg) => {
-        if (passwordMsg.chat.id !== chatId) return;
-        
-        const password = passwordMsg.text;
-
-        // Delete password message immediately
+      // Set timeout
+      const timeout = setTimeout(async () => {
         try {
-          await bot.deleteMessage(chatId, passwordMsg.message_id);
-        } catch (err) {
-          console.log('Could not delete password message');
-        }
-
-        try {
-          const bcrypt = await import('bcryptjs');
-          const isMatch = await bcrypt.default.compare(password, user.password_hash);
-
-          if (!isMatch) {
-            await bot.sendMessage(chatId,
-              '❌ *Incorrect Password*\n\n' +
-              'The password you entered is incorrect.\n' +
-              'Please try /login again with the correct password.',
-              { parse_mode: 'Markdown' }
-            );
-            bot.removeListener('message', passwordHandler);
-            return;
-          }
-
-          // Password correct - auto-verify user
-          const client2 = await pool.connect();
-
-          await client2.query(`
-            UPDATE user_telegram_config
-            SET telegram_chat_id = $1,
-                telegram_username = $2,
-                is_verified = true,
-                is_active = true,
-                verification_code = NULL,
-                verification_expires_at = NULL,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE user_id = $3
-          `, [chatId, msg.from.username, user.id]);
-
-          // Create default reminder settings if not exists
-          await client2.query(`
-            INSERT INTO reminder_settings (user_id)
-            VALUES ($1)
-            ON CONFLICT (user_id) DO NOTHING
-          `, [user.id]);
-
-          client2.release();
-
-          const successMessage = `
-✅ *Login Successful!*
-
-Welcome ${user.name}! 🎉
-
-Your Telegram is now connected to LifePath.
-
-*You'll receive:*
-• ⏰ Task reminders before start time
-• 📊 Daily task summaries
-• 🎯 Routine generation notices
-• ⚠️ Overdue task alerts
-
-*What's Next?*
-• Use /status to check settings
-• Configure preferences in LifePath app
-• Start creating tasks and get reminders!
-
-Let's make your day productive! 💪
-          `;
-
-          await bot.sendMessage(chatId, successMessage, { parse_mode: 'Markdown' });
-
-        } catch (error) {
-          console.error('Error in password verification:', error);
           await bot.sendMessage(chatId,
-            '❌ An error occurred during login. Please try again.',
+            '⏰ *Login Timeout*\n\n' +
+            'Login session expired.\n' +
+            'Use /login to try again.',
             { parse_mode: 'Markdown' }
           );
+        } catch (error) {
+          console.error('Error sending timeout message:', error);
         }
+        userStates.delete(chatId);
+      }, 5 * 60 * 1000); // 5 minutes
 
-        // Remove this one-time handler
-        bot.removeListener('message', passwordHandler);
-      };
-
-      // Add one-time password handler
-      bot.once('message', passwordHandler);
+      userStates.get(chatId).timeoutId = timeout;
 
     } catch (error) {
-      console.error('Error in login command:', error);
+      console.error('Error in login process:', error);
       await bot.sendMessage(chatId,
         '❌ An error occurred. Please try again.',
         { parse_mode: 'Markdown' }
       );
     }
-  });
+  };
 
   // /verify command - Verify user with code
   bot.onText(/\/verify (.+)/, async (msg, match) => {
@@ -379,7 +717,7 @@ Let's make your day productive! 💪
       `, [verificationCode]);
 
       if (result.rows.length === 0) {
-        await bot.sendMessage(chatId, 
+        await bot.sendMessage(chatId,
           '❌ *Verification Failed*\n\n' +
           'Invalid or expired verification code.\n' +
           'Please get a new code from the LifePath app.',
@@ -431,7 +769,7 @@ Let's make your day productive! 💪
 
     } catch (error) {
       console.error('Error in verification:', error);
-      await bot.sendMessage(chatId, 
+      await bot.sendMessage(chatId,
         '❌ An error occurred during verification. Please try again.',
         { parse_mode: 'Markdown' }
       );
@@ -503,25 +841,35 @@ Manage your settings in the LifePath app! 📱
 
 *Available Commands:*
 /start - Welcome message and setup guide
+/register - Register new LifePath account
 /menu - Show command menu with buttons
 /login <email> - Login directly from Telegram
+/logout - Disconnect from LifePath account
 /verify <code> - Link with code from app
 /addtask - Add a new task
 /today - View today's tasks
 /status - Check your connection and settings
 /help - Show this help message
 
-*Connection Methods:*
+*Getting Started:*
 
-*Method 1: Quick Login from Telegram* 🚀
+*Method 1: New User Registration* 📝
+1. \`/register\` to create account
+2. Send: \`Name | Email | Password\`
+3. Instantly registered and connected!
+
+*Method 2: Quick Login from Telegram* 🚀
 1. \`/login your-email@example.com\`
 2. Send your password when prompted
 3. Instantly connected!
 
-*Method 2: Verify with App Code* 📱
+*Method 3: Verify with App Code* 📱
 1. Generate code in LifePath app
 2. \`/verify ABC123\` with your code
 3. Connected!
+
+*Disconnecting Account* 🚪
+Use \`/logout\` to disconnect your Telegram from LifePath account anytime.
 
 *Task Management:*
 
@@ -584,7 +932,7 @@ Stay productive! 🚀
       ]
     };
 
-    await bot.sendMessage(chatId, helpMessage, { 
+    await bot.sendMessage(chatId, helpMessage, {
       parse_mode: 'Markdown',
       reply_markup: keyboard
     });
@@ -594,7 +942,7 @@ Stay productive! 🚀
   bot.onText(/\/addtaskraw(?:\s+(.+))?/, async (msg, match) => {
     const chatId = msg.chat.id;
     const taskDetails = match[1]; // Text after /addtaskraw (if any)
-    
+
     console.log(`📝 /addtaskraw command received from ${msg.from.username || msg.from.first_name} (${chatId})`);
     console.log(`📋 Task details in command: "${taskDetails}"`);
 
@@ -639,7 +987,7 @@ Stay productive! 🚀
         userId: user.user_id,
         userName: user.name
       });
-      
+
       console.log(`💾 State saved for ${chatId}:`, userStates.get(chatId));
       console.log(`📊 Total states in memory:`, userStates.size);
 
@@ -833,7 +1181,7 @@ Please send your task details in this format:
           '📅 *Today\'s Tasks*\n\n' +
           '🎉 No tasks for today!\n\n' +
           'Use /addtask to create a new task.',
-          { 
+          {
             parse_mode: 'Markdown',
             reply_markup: {
               inline_keyboard: [[
@@ -893,7 +1241,7 @@ Please send your task details in this format:
 
       message += '\n\n💪 Keep up the great work!';
 
-      await bot.sendMessage(chatId, message, { 
+      await bot.sendMessage(chatId, message, {
         parse_mode: 'Markdown',
         reply_markup: {
           inline_keyboard: [[
@@ -1074,7 +1422,7 @@ Please send your task details in this format:
           '📋 *My Tasks*\n\n' +
           '✨ No active tasks!\n\n' +
           'Tap button below to add your first task.',
-          { 
+          {
             parse_mode: 'Markdown',
             reply_markup: {
               inline_keyboard: [[
@@ -1088,8 +1436,8 @@ Please send your task details in this format:
 
       // Send each task with action buttons
       const intro = `📋 *My Active Tasks* (${tasks.length})\n\n` +
-                   `Tap action buttons below each task:\n` +
-                   `✅ Complete | ✏️ Edit | 🗑️ Delete`;
+        `Tap action buttons below each task:\n` +
+        `✅ Complete | ✏️ Edit | 🗑️ Delete`;
 
       await bot.sendMessage(chatId, intro, { parse_mode: 'Markdown' });
 
@@ -1121,7 +1469,7 @@ ${task.description ? `_${task.description.substring(0, 80)}${task.description.le
       }
 
       if (tasks.length > 10) {
-        await bot.sendMessage(chatId, 
+        await bot.sendMessage(chatId,
           `_... and ${tasks.length - 10} more tasks_\n\n` +
           `Use /today to see all tasks`,
           { parse_mode: 'Markdown' }
@@ -1310,7 +1658,7 @@ ${task.description ? `_${task.description.substring(0, 80)}${task.description.le
   bot.onText(/\/edittask(?:\s+(.+))?/, async (msg, match) => {
     const chatId = msg.chat.id;
     const taskId = match[1]?.trim();
-    
+
     console.log(`✏️ /edittask command received from ${msg.from.username || msg.from.first_name} (${chatId})`);
     console.log(`📋 Task ID: "${taskId}"`);
 
@@ -1463,7 +1811,7 @@ Send your updates now, or /cancel to abort.
   bot.onText(/\/deletetask(?:\s+(.+))?/, async (msg, match) => {
     const chatId = msg.chat.id;
     const taskId = match[1]?.trim();
-    
+
     console.log(`🗑️ /deletetask command received from ${msg.from.username || msg.from.first_name} (${chatId})`);
     console.log(`📋 Task ID: "${taskId}"`);
 
@@ -1577,7 +1925,7 @@ The task has been permanently removed from your list.
 Use /today to see your remaining tasks.
       `;
 
-      await bot.sendMessage(chatId, successMessage, { 
+      await bot.sendMessage(chatId, successMessage, {
         parse_mode: 'Markdown',
         reply_markup: {
           inline_keyboard: [[
@@ -1722,7 +2070,7 @@ You have ${routines.length} routine template${routines.length > 1 ? 's' : ''}
         { text: '📊 View Today\'s Tasks', callback_data: 'cmd_today' }
       ]);
 
-      await bot.sendMessage(chatId, message, { 
+      await bot.sendMessage(chatId, message, {
         parse_mode: 'Markdown',
         reply_markup: keyboard
       });
@@ -1871,7 +2219,7 @@ Choose a routine to generate tasks from:
 
       // Generate tasks from specific routine
       const routineService = await import('./routineService.js');
-      
+
       console.log(`🔄 Generating routine ${routineId} for user ${user.user_id}`);
       const generationResult = await routineService.generateDailyTasksFromTemplate(user.user_id, routineId);
 
@@ -1939,7 +2287,7 @@ ${routine.description ? `📄 ${routine.description}\n` : ''}
   // /createroutine command - Create new routine template
   bot.onText(/\/createroutine/, async (msg) => {
     const chatId = msg.chat.id;
-    
+
     console.log(`📋 /createroutine command received from ${msg.from.username || msg.from.first_name} (${chatId})`);
 
     try {
@@ -2002,7 +2350,7 @@ Send your routine info now, or /cancel to abort.
   // /quickroutine command - Interactive routine creation (NO SYMBOLS!)
   bot.onText(/\/quickroutine/, async (msg) => {
     const chatId = msg.chat.id;
-    
+
     console.log(`📋 /quickroutine command received from ${msg.from.username || msg.from.first_name} (${chatId})`);
 
     try {
@@ -2056,7 +2404,7 @@ Send your routine info now, or /cancel to abort.
   bot.onText(/\/addtasktoroutine\s+(.+)/, async (msg, match) => {
     const chatId = msg.chat.id;
     const routineId = match[1]?.trim();
-    
+
     console.log(`➕ /addtasktoroutine command received from ${msg.from.username || msg.from.first_name} (${chatId})`);
     console.log(`📋 Routine ID: "${routineId}"`);
 
@@ -2150,7 +2498,7 @@ Send your task info now, or /cancel to abort.
   bot.onText(/\/quickaddtask(?:\s+(.+))?/, async (msg, match) => {
     const chatId = msg.chat.id;
     const routineId = match[1]?.trim();
-    
+
     console.log(`➕ /quickaddtask command received from ${msg.from.username || msg.from.first_name} (${chatId})`);
 
     try {
@@ -2394,6 +2742,36 @@ Send your task info now, or /cancel to abort.
             text: '/help'
           }
         });
+      } else if (data === 'cmd_register') {
+        // Execute /register command directly
+        const fakeMsg = {
+          chat: { id: chatId },
+          from: callbackQuery.from,
+          message_id: Date.now()
+        };
+        bot.processUpdate({
+          update_id: Date.now(),
+          message: {
+            ...fakeMsg,
+            date: Math.floor(Date.now() / 1000),
+            text: '/register'
+          }
+        });
+      } else if (data === 'cmd_logout') {
+        // Execute /logout command directly
+        const fakeMsg = {
+          chat: { id: chatId },
+          from: callbackQuery.from,
+          message_id: Date.now()
+        };
+        bot.processUpdate({
+          update_id: Date.now(),
+          message: {
+            ...fakeMsg,
+            date: Math.floor(Date.now() / 1000),
+            text: '/logout'
+          }
+        });
       } else if (data === 'cmd_menu') {
         // Execute /menu command directly
         const fakeMsg = {
@@ -2545,7 +2923,7 @@ Send your task info now, or /cancel to abort.
       } else if (data.startsWith('select_routine_for_task_')) {
         // Handle routine selection for adding task
         const routineId = data.replace('select_routine_for_task_', '');
-        
+
         // Trigger /quickaddtask with routine ID
         const fakeMsg = {
           chat: { id: chatId },
@@ -2691,6 +3069,95 @@ Send your task info now, or /cancel to abort.
       } else if (data === 'cancel_routine_edit') {
         // Cancel routine edit
         await bot.sendMessage(chatId, '❌ Routine edit cancelled.');
+      } else if (data === 'confirm_logout') {
+        // Confirm logout - disconnect user
+        const userState = userStates.get(chatId);
+        if (!userState || userState.action !== 'awaiting_logout_confirmation') {
+          await bot.answerCallbackQuery(callbackQuery.id, {
+            text: '❌ Logout session expired',
+            show_alert: true
+          });
+          return;
+        }
+
+        // Clear timeout
+        if (userState.timeoutId) {
+          clearTimeout(userState.timeoutId);
+        }
+
+        try {
+          const client = await pool.connect();
+
+          // Disconnect user from Telegram
+          await client.query(`
+            UPDATE user_telegram_config
+            SET telegram_chat_id = NULL,
+                telegram_username = NULL,
+                is_verified = false,
+                is_active = false,
+                verification_code = NULL,
+                verification_expires_at = NULL,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = $1
+          `, [userState.userId]);
+
+          client.release();
+
+          // Update confirmation message
+          await bot.editMessageText(
+            `✅ *Successfully Logged Out!*\n\n` +
+            `**${userState.userName}** has been disconnected from this Telegram account.\n\n` +
+            `🔄 *What happens now:*\n` +
+            `• No more task reminders\n` +
+            `• No more daily summaries\n` +
+            `• No more routine notifications\n\n` +
+            `💡 *Want to reconnect?*\n` +
+            `Use /login or /register anytime!`,
+            {
+              chat_id: chatId,
+              message_id: userState.messageId,
+              parse_mode: 'Markdown'
+            }
+          );
+
+          // Clear user state
+          userStates.delete(chatId);
+
+          console.log(`🚪 User ${userState.userEmail} logged out from chat ${chatId}`);
+
+        } catch (error) {
+          console.error('Error during logout:', error);
+          await bot.editMessageText(
+            '❌ *Logout Failed*\n\n' +
+            'An error occurred while logging out. Please try again.',
+            {
+              chat_id: chatId,
+              message_id: userState.messageId,
+              parse_mode: 'Markdown'
+            }
+          );
+        }
+      } else if (data === 'cancel_logout') {
+        // Cancel logout
+        const userState = userStates.get(chatId);
+        if (userState && userState.action === 'awaiting_logout_confirmation') {
+          // Clear timeout
+          if (userState.timeoutId) {
+            clearTimeout(userState.timeoutId);
+          }
+
+          await bot.editMessageText(
+            `❌ *Logout Cancelled*\n\n` +
+            `You are still connected as **${userState.userName}**.\n\n` +
+            `Use /logout anytime if you want to disconnect.`,
+            {
+              chat_id: chatId,
+              message_id: userState.messageId,
+              parse_mode: 'Markdown'
+            }
+          );
+          userStates.delete(chatId);
+        }
       } else {
         // Unknown callback data
         console.log(`⚠️ Unknown callback data: ${data}`);
@@ -2718,16 +3185,28 @@ Send your task info now, or /cancel to abort.
 
     console.log(`📨 Message received from ${msg.from.username || msg.from.first_name} (${chatId}): ${text}`);
 
-    // Skip if it's a command
-    if (text && text.startsWith('/')) {
-      console.log(`⏭️  Skipping command: ${text}`);
-      return;
-    }
-
     // Check if user has a pending state
     const userState = userStates.get(chatId);
+
+    // Handle state-based interactions first, then let command handlers process
+    if (text && text.startsWith('/')) {
+      // If user has a state, handle state-based commands
+      if (userState && userState.action === 'awaiting_registration_input' && text.toLowerCase().startsWith('/register ')) {
+        // Remove /register prefix and process as registration input
+        msg.text = text.substring(10).trim(); // Remove "/register "
+        console.log(`🔄 Converted command to input: ${msg.text}`);
+      } else if (userState) {
+        // User has state, but command doesn't match, skip
+        console.log(`⏭️  Skipping command (user has pending state): ${text}`);
+        return;
+      } else {
+        // No state, let command handlers process this
+        return;
+      }
+    }
+
     console.log(`🔍 User state for ${chatId}:`, userState);
-    
+
     if (!userState) {
       console.log(`ℹ️  No pending state for user ${chatId}`);
       return;
@@ -2781,6 +3260,275 @@ Send your task info now, or /cancel to abort.
       await handleFieldEditInput(chatId, text, userState);
       userStates.delete(chatId);
       console.log(`🗑️  State cleared for user ${chatId}`);
+    } else if (userState.action === 'awaiting_login_email') {
+      console.log(`✅ Processing login email input for user ${chatId}`);
+      const email = text.trim().toLowerCase();
+      // Clear timeout
+      if (userState.timeoutId) {
+        clearTimeout(userState.timeoutId);
+      }
+      userStates.delete(chatId);
+      await processLogin(chatId, email);
+    } else if (userState.action === 'awaiting_registration_name') {
+      console.log(`✅ Processing registration name input for user ${chatId}`);
+      const name = text.trim();
+
+      if (name.length < 2 || name.length > 100) {
+        await bot.sendMessage(chatId,
+          '❌ *Invalid Name*\n\n' +
+          'Name must be 2-100 characters long.\n' +
+          'Please try again.',
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+
+      // Clear timeout
+      if (userState.timeoutId) {
+        clearTimeout(userState.timeoutId);
+      }
+
+      // Ask for email
+      await bot.sendMessage(chatId,
+        `📝 *Step 2 of 3:* What's your email address?\n\n` +
+        `*Example:* john@example.com\n\n` +
+        `⏰ *Timeout:* You have 5 minutes.`,
+        { parse_mode: 'Markdown' }
+      );
+
+      // Set state for email input
+      userStates.set(chatId, {
+        action: 'awaiting_registration_email',
+        name: name,
+        timestamp: Date.now()
+      });
+
+      // Set timeout
+      const timeout = setTimeout(async () => {
+        try {
+          await bot.sendMessage(chatId,
+            '⏰ *Registration Timeout*\n\n' +
+            'Registration session expired.\n' +
+            'Use /register to start again.',
+            { parse_mode: 'Markdown' }
+          );
+        } catch (error) {
+          console.error('Error sending timeout message:', error);
+        }
+        userStates.delete(chatId);
+      }, 5 * 60 * 1000);
+
+      userStates.get(chatId).timeoutId = timeout;
+    } else if (userState.action === 'awaiting_registration_email') {
+      console.log(`✅ Processing registration email input for user ${chatId}`);
+      const email = text.trim().toLowerCase();
+
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        await bot.sendMessage(chatId,
+          '❌ *Invalid Email*\n\n' +
+          'Please provide a valid email address.\n' +
+          'Please try again.',
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+
+      // Check if email already exists
+      try {
+        const client = await pool.connect();
+        const existingUser = await client.query(
+          'SELECT id FROM users WHERE LOWER(email) = LOWER($1)',
+          [email]
+        );
+        client.release();
+
+        if (existingUser.rows.length > 0) {
+          await bot.sendMessage(chatId,
+            '❌ *Email Already Registered*\n\n' +
+            'This email is already registered in LifePath.\n' +
+            'Use /login to connect your existing account.',
+            { parse_mode: 'Markdown' }
+          );
+          // Clear timeout
+          if (userState.timeoutId) {
+            clearTimeout(userState.timeoutId);
+          }
+          userStates.delete(chatId);
+          return;
+        }
+      } catch (error) {
+        console.error('Error checking email:', error);
+        await bot.sendMessage(chatId,
+          '❌ An error occurred. Please try /register again.',
+          { parse_mode: 'Markdown' }
+        );
+        // Clear timeout
+        if (userState.timeoutId) {
+          clearTimeout(userState.timeoutId);
+        }
+        userStates.delete(chatId);
+        return;
+      }
+
+      // Clear timeout
+      if (userState.timeoutId) {
+        clearTimeout(userState.timeoutId);
+      }
+
+      // Ask for password
+      await bot.sendMessage(chatId,
+        `📝 *Step 3 of 3:* Create a password\n\n` +
+        `*Requirements:*\n` +
+        `• At least 6 characters\n` +
+        `• Will be encrypted securely\n\n` +
+        `⚠️ *Security:* Password will be deleted from chat immediately.\n\n` +
+        `⏰ *Timeout:* You have 5 minutes.`,
+        { parse_mode: 'Markdown' }
+      );
+
+      // Set state for password input
+      userStates.set(chatId, {
+        action: 'awaiting_registration_password',
+        name: userState.name,
+        email: email,
+        timestamp: Date.now()
+      });
+
+      // Set timeout
+      const timeout = setTimeout(async () => {
+        try {
+          await bot.sendMessage(chatId,
+            '⏰ *Registration Timeout*\n\n' +
+            'Registration session expired.\n' +
+            'Use /register to start again.',
+            { parse_mode: 'Markdown' }
+          );
+        } catch (error) {
+          console.error('Error sending timeout message:', error);
+        }
+        userStates.delete(chatId);
+      }, 5 * 60 * 1000);
+
+      userStates.get(chatId).timeoutId = timeout;
+    } else if (userState.action === 'awaiting_registration_password') {
+      console.log(`✅ Processing registration password input for user ${chatId}`);
+      const password = text.trim();
+
+      if (password.length < 6) {
+        await bot.sendMessage(chatId,
+          '❌ *Password Too Short*\n\n' +
+          'Password must be at least 6 characters long.\n' +
+          'Please try again.',
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+
+      // Clear timeout
+      if (userState.timeoutId) {
+        clearTimeout(userState.timeoutId);
+      }
+
+      // Delete password message for security
+      try {
+        await bot.deleteMessage(chatId, msg.message_id);
+      } catch (err) {
+        console.log('Could not delete password message');
+      }
+
+      userStates.delete(chatId);
+
+      // Process registration
+      const input = `${userState.name} | ${userState.email} | ${password}`;
+      await processRegistration(chatId, input);
+    } else if (userState.action === 'awaiting_login_password') {
+      console.log(`✅ Processing login password input for user ${chatId}`);
+      const password = text.trim();
+
+      // Delete password message for security
+      try {
+        await bot.deleteMessage(chatId, msg.message_id);
+      } catch (err) {
+        console.log('Could not delete password message');
+      }
+
+      // Clear timeout
+      if (userState.timeoutId) {
+        clearTimeout(userState.timeoutId);
+      }
+
+      userStates.delete(chatId);
+
+      // Verify password
+      try {
+        const bcrypt = await import('bcryptjs');
+        const isMatch = await bcrypt.default.compare(password, userState.passwordHash);
+
+        if (!isMatch) {
+          await bot.sendMessage(chatId,
+            '❌ *Incorrect Password*\n\n' +
+            'The password you entered is incorrect.\n' +
+            'Use /login to try again.',
+            { parse_mode: 'Markdown' }
+          );
+          return;
+        }
+
+        // Password correct - update telegram config
+        const client = await pool.connect();
+
+        await client.query(`
+          UPDATE user_telegram_config
+          SET telegram_chat_id = $1,
+              telegram_username = $2,
+              is_verified = true,
+              is_active = true,
+              verification_code = NULL,
+              verification_expires_at = NULL,
+              updated_at = CURRENT_TIMESTAMP
+          WHERE user_id = $3
+        `, [chatId, msg.from.username, userState.userId]);
+
+        // Create default reminder settings if not exists
+        await client.query(`
+          INSERT INTO reminder_settings (user_id)
+          VALUES ($1)
+          ON CONFLICT (user_id) DO NOTHING
+        `, [userState.userId]);
+
+        client.release();
+
+        const successMessage = `
+✅ *Login Successful!*
+
+Welcome back ${userState.userName}! 🎉
+
+Your Telegram is now connected to LifePath.
+
+*You'll receive:*
+• ⏰ Task reminders before start time
+• 📊 Daily task summaries
+• 🎯 Routine generation notices
+• ⚠️ Overdue task alerts
+
+*What's Next?*
+• Use /status to check settings
+• Configure preferences in LifePath app
+• Start creating tasks and get reminders!
+
+Let's make your day productive! 💪
+        `;
+
+        await bot.sendMessage(chatId, successMessage, { parse_mode: 'Markdown' });
+
+      } catch (error) {
+        console.error('Error in password verification:', error);
+        await bot.sendMessage(chatId,
+          '❌ An error occurred during login. Please try again.',
+          { parse_mode: 'Markdown' }
+        );
+      }
     } else if (userState.action === 'awaiting_password') {
       // This is handled by the one-time handler in /login
       // Don't interfere
@@ -2914,7 +3662,7 @@ What would you like to edit?
       ]
     };
 
-    await bot.sendMessage(chatId, message, { 
+    await bot.sendMessage(chatId, message, {
       parse_mode: 'Markdown',
       reply_markup: keyboard
     });
@@ -2984,7 +3732,7 @@ What would you like to edit?
       ]
     };
 
-    await bot.sendMessage(chatId, message, { 
+    await bot.sendMessage(chatId, message, {
       parse_mode: 'Markdown',
       reply_markup: keyboard
     });
@@ -3633,7 +4381,7 @@ const handleInteractiveTaskInput = async (chatId, text, userState) => {
           '✅ Description saved!\n\n' +
           '📊 *Step 3/6:* Select priority\n\n' +
           'Choose task priority:',
-          { 
+          {
             parse_mode: 'Markdown',
             reply_markup: {
               inline_keyboard: [[
@@ -3832,10 +4580,10 @@ const handleInteractiveRoutineInput = async (chatId, text, userState) => {
       case 'description':
         // Save description and create routine
         routineData.description = text.trim() === '-' ? '' : text.trim();
-        
+
         // Create the routine
         const routineId = await createRoutineFromInteractive(chatId, routineData, userId);
-        
+
         if (routineId) {
           // Ask if user wants to add tasks
           userState.routineId = routineId;
@@ -3847,7 +4595,7 @@ const handleInteractiveRoutineInput = async (chatId, text, userState) => {
             `📋 *${routineData.name}*\n` +
             `${routineData.description ? `_${routineData.description}_\n\n` : '\n'}` +
             'What would you like to do next?',
-            { 
+            {
               parse_mode: 'Markdown',
               reply_markup: {
                 inline_keyboard: [
@@ -4104,7 +4852,7 @@ const createRoutineTaskFromInteractive = async (chatId, taskData, routineId, rou
       rest: '🌴'
     };
 
-    let successMessage = 
+    let successMessage =
       '✅ *Task Added to Routine!*\n\n' +
       `📋 Routine: *${routineName}*\n\n` +
       `📌 *${taskData.title}*\n`;
@@ -4113,7 +4861,7 @@ const createRoutineTaskFromInteractive = async (chatId, taskData, routineId, rou
       successMessage += `_${taskData.description}_\n\n`;
     }
 
-    successMessage += 
+    successMessage +=
       `${priorityEmoji[taskData.priority || 'medium']} Priority: ${taskData.priority || 'medium'}\n` +
       `${categoryEmoji[taskData.category || 'work']} Category: ${taskData.category || 'work'}\n`;
 
@@ -4194,10 +4942,10 @@ const handleGenerateAllRoutines = async (chatId) => {
       try {
         // Import routine service
         const routineService = await import('../services/routineService.js');
-        
+
         // Generate tasks
         const result = await routineService.generateDailyTasksFromTemplate(user.user_id, routine.id);
-        
+
         if (result.success) {
           totalTasksGenerated += result.tasksGenerated || 0;
           routineNames.push(routine.name);
@@ -4490,8 +5238,8 @@ const handleGenerateRoutineNow = async (chatId, messageId, routineId) => {
       `🗓️ Routine: ${routine.name}\n` +
       `📋 *${tasksGenerated} tasks* added to your list\n\n` +
       `Use /today to see your tasks!`,
-      { 
-        chat_id: chatId, 
+      {
+        chat_id: chatId,
         message_id: messageId,
         parse_mode: 'Markdown'
       }
@@ -4506,7 +5254,7 @@ const handleGenerateRoutineNow = async (chatId, messageId, routineId) => {
 // Helper function to handle priority selection
 const handlePrioritySelection = async (chatId, priority) => {
   const userState = userStates.get(chatId);
-  
+
   // Accept priority selection for both regular interactive task and routine-interactive task
   if (!userState || (userState.action !== 'awaiting_interactive_task' && userState.action !== 'awaiting_interactive_routine_task') || userState.step !== 'priority') {
     await bot.sendMessage(chatId, '❌ Invalid state. Please start again with /quickadd');
@@ -4524,7 +5272,7 @@ const handlePrioritySelection = async (chatId, priority) => {
     `✅ Priority set to ${priorityEmoji} ${priority}!\n\n` +
     '📁 *Step 4/6:* Select category\n\n' +
     'Choose task category:',
-    { 
+    {
       parse_mode: 'Markdown',
       reply_markup: {
         inline_keyboard: [[
@@ -4540,7 +5288,7 @@ const handlePrioritySelection = async (chatId, priority) => {
 // Helper function to handle category selection
 const handleCategorySelection = async (chatId, category) => {
   const userState = userStates.get(chatId);
-  
+
   // Accept category selection for both regular interactive task and routine-interactive task
   if (!userState || (userState.action !== 'awaiting_interactive_task' && userState.action !== 'awaiting_interactive_routine_task') || userState.step !== 'category') {
     await bot.sendMessage(chatId, '❌ Invalid state. Please start again with /quickadd');
@@ -4569,7 +5317,7 @@ const handleTaskInput = async (chatId, input, userId, userName) => {
   try {
     console.log(`🔧 handleTaskInput called for user ${userId} (${userName})`);
     console.log(`📝 Input: "${input}"`);
-    
+
     const parts = input.split('|').map(p => p.trim());
     console.log(`📋 Parts:`, parts);
 
@@ -4676,7 +5424,7 @@ Use /today to see all your tasks for today.
     `;
 
     console.log(`📤 Sending success message...`);
-    await bot.sendMessage(chatId, successMessage, { 
+    await bot.sendMessage(chatId, successMessage, {
       parse_mode: 'Markdown',
       reply_markup: {
         inline_keyboard: [[
@@ -4702,7 +5450,7 @@ const handleTaskEdit = async (chatId, input, userId, taskId, currentTask) => {
   try {
     console.log(`🔧 handleTaskEdit called for task ${taskId}`);
     console.log(`📝 Input: "${input}"`);
-    
+
     const parts = input.split('|').map(p => p.trim());
 
     // Parse input - use current values as defaults for empty fields
@@ -4784,7 +5532,7 @@ const handleTaskEdit = async (chatId, input, userId, taskId, currentTask) => {
           DELETE FROM reminders 
           WHERE task_id = $1 AND status = 'pending'
         `, [taskId]);
-        
+
         // Schedule new reminders
         await reminderService.scheduleRemindersForTask({
           ...task,
@@ -4829,7 +5577,7 @@ ${changesMessage || 'No changes detected'}
 Use /today to see your updated task list.
     `;
 
-    await bot.sendMessage(chatId, successMessage, { 
+    await bot.sendMessage(chatId, successMessage, {
       parse_mode: 'Markdown',
       reply_markup: {
         inline_keyboard: [[
@@ -4853,7 +5601,7 @@ const handleRoutineCreation = async (chatId, input, userId, userName) => {
   try {
     console.log(`🔧 handleRoutineCreation called for user ${userId} (${userName})`);
     console.log(`📝 Input: "${input}"`);
-    
+
     const parts = input.split('|').map(p => p.trim());
     const name = parts[0];
     const description = parts[1] || '';
@@ -4900,7 +5648,7 @@ ${routine.description ? `_${routine.description}_\n` : ''}
    \`/generateroutine ${routine.id}\`
     `;
 
-    await bot.sendMessage(chatId, successMessage, { 
+    await bot.sendMessage(chatId, successMessage, {
       parse_mode: 'Markdown',
       reply_markup: {
         inline_keyboard: [[
@@ -4924,7 +5672,7 @@ const handleRoutineTaskInput = async (chatId, input, userId, routineId, routineN
   try {
     console.log(`🔧 handleRoutineTaskInput called for routine ${routineId}`);
     console.log(`📝 Input: "${input}"`);
-    
+
     const parts = input.split('|').map(p => p.trim());
 
     const title = parts[0];
@@ -5020,7 +5768,7 @@ ${task.description ? `_${task.description}_\n` : ''}
 \`/myroutines\`
     `;
 
-    await bot.sendMessage(chatId, successMessage, { 
+    await bot.sendMessage(chatId, successMessage, {
       parse_mode: 'Markdown',
       reply_markup: {
         inline_keyboard: [[
@@ -5064,7 +5812,7 @@ ${task.description ? `\n_${task.description}_` : ''}
 Get ready to be productive! 💪
     `;
 
-    const result = await bot.sendMessage(chatId, message, { 
+    const result = await bot.sendMessage(chatId, message, {
       parse_mode: 'Markdown',
       reply_markup: {
         inline_keyboard: [[
@@ -5074,16 +5822,16 @@ Get ready to be productive! 💪
       }
     });
 
-    return { 
-      success: true, 
-      messageId: result.message_id 
+    return {
+      success: true,
+      messageId: result.message_id
     };
 
   } catch (error) {
     console.error('Error sending task reminder:', error);
-    return { 
-      success: false, 
-      error: error.message 
+    return {
+      success: false,
+      error: error.message
     };
   }
 };
@@ -5129,16 +5877,16 @@ Here's your daily task summary for *${new Date().toLocaleDateString()}*
 
     const result = await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
 
-    return { 
-      success: true, 
-      messageId: result.message_id 
+    return {
+      success: true,
+      messageId: result.message_id
     };
 
   } catch (error) {
     console.error('Error sending daily summary:', error);
-    return { 
-      success: false, 
-      error: error.message 
+    return {
+      success: false,
+      error: error.message
     };
   }
 };
@@ -5163,16 +5911,16 @@ Check your LifePath app to get started! 📱
 
     const result = await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
 
-    return { 
-      success: true, 
-      messageId: result.message_id 
+    return {
+      success: true,
+      messageId: result.message_id
     };
 
   } catch (error) {
     console.error('Error sending routine notice:', error);
-    return { 
-      success: false, 
-      error: error.message 
+    return {
+      success: false,
+      error: error.message
     };
   }
 };
@@ -5198,16 +5946,16 @@ Don't forget to complete it! ⏰
 
     const result = await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
 
-    return { 
-      success: true, 
-      messageId: result.message_id 
+    return {
+      success: true,
+      messageId: result.message_id
     };
 
   } catch (error) {
     console.error('Error sending overdue alert:', error);
-    return { 
-      success: false, 
-      error: error.message 
+    return {
+      success: false,
+      error: error.message
     };
   }
 };
@@ -5222,6 +5970,22 @@ export const isBotInitialized = () => isInitialized;
 export const shutdownTelegramBot = () => {
   if (bot && isInitialized) {
     console.log('🔄 Shutting down Telegram Bot...');
+
+    // Clear all login timeouts
+    for (const [chatId, timeout] of loginTimeouts) {
+      clearTimeout(timeout);
+      console.log(`🧹 Cleared login timeout for chat ${chatId}`);
+    }
+    loginTimeouts.clear();
+
+    // Clear all logout timeouts from user states
+    for (const [chatId, userState] of userStates) {
+      if (userState.timeoutId) {
+        clearTimeout(userState.timeoutId);
+        console.log(`🧹 Cleared logout timeout for chat ${chatId}`);
+      }
+    }
+
     bot.stopPolling();
     isInitialized = false;
     console.log('✅ Telegram Bot shutdown completed');
