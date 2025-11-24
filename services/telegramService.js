@@ -15,7 +15,9 @@ const routineAttachMap = new Map();
 const loginTimeouts = new Map();
 
 /**
- * Telegram Bot Service for LifePath Smart Reminder System
+ * Levi - LifePath Smart Reminder System
+ * Your personal productivity companion 🤖
+ * 
  * Handles bot communication, user verification, and notification sending
  */
 
@@ -41,7 +43,7 @@ export const initializeTelegramBot = () => {
       filepath: false // Disable file download for security
     });
 
-    console.log('🤖 Telegram Bot initialized successfully');
+    console.log('🤖 Levi initialized successfully');
 
     // Set bot commands menu
     setupBotCommands();
@@ -53,7 +55,7 @@ export const initializeTelegramBot = () => {
     return bot;
 
   } catch (error) {
-    console.error('❌ Failed to initialize Telegram Bot:', error.message);
+    console.error('❌ Failed to initialize Levi:', error.message);
     return null;
   }
 };
@@ -82,7 +84,7 @@ const setupBotCommands = async () => {
       { command: 'menu', description: '📋 Show command menu' }
     ]);
 
-    console.log('✅ Telegram Bot command menu registered');
+    console.log('✅ Levi command menu registered');
   } catch (error) {
     console.error('❌ Failed to set bot commands:', error);
   }
@@ -222,15 +224,20 @@ Your account has been created and your Telegram is automatically connected.
 • 🎯 Routine generation notices
 • ⚠️ Overdue task alerts
 
-*What's Next?*
-• Use /addtask to create your first task
-• Use /status to check your settings
-• Configure preferences in the LifePath app
+*One more thing...*
+🤖 *Give me a name!* What would you like to call me?
 
-Let's make your day productive! 💪
+Just type the name you'd like for your personal assistant.
     `;
 
     await bot.sendMessage(chatId, successMessage, { parse_mode: 'Markdown' });
+
+    // Set state for bot name input after successful registration
+    userStates.set(chatId, {
+      action: 'awaiting_bot_name_after_registration',
+      userId: newUser.id,
+      timestamp: Date.now()
+    });
 
   } catch (error) {
     console.error('Error in registration process:', error);
@@ -3499,28 +3506,26 @@ Send your task info now, or /cancel to abort.
 
         client.release();
 
-        const successMessage = `
+    const successMessage = `
 ✅ *Login Successful!*
 
-Welcome back ${userState.userName}! 🎉
+Welcome back ${userState.userName}! I'm Levi, ready to help you stay productive! 🎉
 
 Your Telegram is now connected to LifePath.
 
-*You'll receive:*
+*What I can do for you:*
 • ⏰ Task reminders before start time
-• 📊 Daily task summaries
+• 📊 Daily task summaries  
 • 🎯 Routine generation notices
 • ⚠️ Overdue task alerts
 
-*What's Next?*
+*Let's get back to work!*
 • Use /status to check settings
 • Configure preferences in LifePath app
 • Start creating tasks and get reminders!
 
-Let's make your day productive! 💪
-        `;
-
-        await bot.sendMessage(chatId, successMessage, { parse_mode: 'Markdown' });
+I'm excited to help you, ${userState.userName}! 💪
+    `;        await bot.sendMessage(chatId, successMessage, { parse_mode: 'Markdown' });
 
       } catch (error) {
         console.error('Error in password verification:', error);
@@ -3534,6 +3539,65 @@ Let's make your day productive! 💪
       // Don't interfere
       console.log(`🔐 Awaiting password, skipping...`);
       return;
+    } else if (userState.action === 'awaiting_bot_name_after_registration') {
+      console.log(`✅ Processing bot name input after registration for user ${chatId}`);
+      const botName = text.trim();
+
+      // Validate bot name
+      if (botName.length < 2 || botName.length > 20) {
+        await bot.sendMessage(chatId,
+          '❌ *Invalid Bot Name*\n\n' +
+          'Bot name must be 2-20 characters long.\n' +
+          'Please try again.',
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+
+      // Check for valid characters (letters, numbers, spaces)
+      const botNameRegex = /^[a-zA-Z0-9\s]+$/;
+      if (!botNameRegex.test(botName)) {
+        await bot.sendMessage(chatId,
+          '❌ *Invalid Bot Name*\n\n' +
+          'Bot name can only contain letters, numbers, and spaces.\n' +
+          'Please try again.',
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+
+      // Save bot name to database
+      try {
+        const client = await pool.connect();
+        await client.query(`
+          UPDATE user_telegram_config
+          SET bot_name = $1, updated_at = CURRENT_TIMESTAMP
+          WHERE user_id = $2
+        `, [botName, userState.userId]);
+        client.release();
+
+        userStates.delete(chatId);
+
+        await bot.sendMessage(chatId,
+          `🎉 *Perfect!*\n\n` +
+          `From now on, you can call me *${botName}*! 🤖\n\n` +
+          `I'm your personal productivity assistant, ready to help you stay on track with tasks and routines.\n\n` +
+          `*Getting Started:*\n` +
+          `• Use /addtask to create your first task\n` +
+          `• Use /status to check your settings\n` +
+          `• Configure preferences in the LifePath app\n\n` +
+          `Let's make your day productive! 💪`,
+          { parse_mode: 'Markdown' }
+        );
+
+      } catch (error) {
+        console.error('Error saving bot name:', error);
+        await bot.sendMessage(chatId,
+          '❌ An error occurred while saving your bot name. You can change it later using /settings.',
+          { parse_mode: 'Markdown' }
+        );
+        userStates.delete(chatId);
+      }
     }
   });
 
@@ -5969,7 +6033,7 @@ export const isBotInitialized = () => isInitialized;
 // Shutdown bot gracefully
 export const shutdownTelegramBot = () => {
   if (bot && isInitialized) {
-    console.log('🔄 Shutting down Telegram Bot...');
+    console.log('🔄 Shutting down Levi...');
 
     // Clear all login timeouts
     for (const [chatId, timeout] of loginTimeouts) {
@@ -5988,7 +6052,7 @@ export const shutdownTelegramBot = () => {
 
     bot.stopPolling();
     isInitialized = false;
-    console.log('✅ Telegram Bot shutdown completed');
+    console.log('✅ Levi shutdown completed');
   }
 };
 
