@@ -727,7 +727,7 @@ Use the buttons below for quick access! 👇
         await bot.sendMessage(chatId,
           '❌ *Verification Failed*\n\n' +
           'Invalid or expired verification code.\n' +
-          'Please get a new code from the LifePath app.',
+          'Please obtain a new code from the LifePath app.',
           { parse_mode: 'Markdown' }
         );
         client.release();
@@ -791,7 +791,7 @@ Let's make your day productive! 💪
       const client = await pool.connect();
 
       const result = await client.query(`
-        SELECT utc.*, u.name, u.email, rs.*
+        SELECT utc.*, u.name, u.email, rs.*, COALESCE(utc.bot_name, 'Levi') as bot_name
         FROM user_telegram_config utc
         JOIN users u ON utc.user_id = u.id
         LEFT JOIN reminder_settings rs ON utc.user_id = rs.user_id
@@ -814,6 +814,8 @@ Let's make your day productive! 💪
 
       const statusMessage = `
 ✅ *Connection Status*
+
+${config.bot_name} here with your account status report, My Lord:
 
 *Account:* ${config.name}
 *Email:* ${config.email}
@@ -1048,7 +1050,7 @@ Please send your task details in this format:
       const client = await pool.connect();
 
       const result = await client.query(`
-        SELECT utc.user_id, u.name
+        SELECT utc.user_id, u.name, COALESCE(utc.bot_name, 'Levi') as bot_name
         FROM user_telegram_config utc
         JOIN users u ON utc.user_id = u.id
         WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
@@ -1072,15 +1074,17 @@ Please send your task details in this format:
         step: 'title',
         userId: user.user_id,
         userName: user.name,
+        botName: user.bot_name,
         taskData: {}
       });
 
       await bot.sendMessage(chatId,
-        '➕ *Quick Add Task* (Interactive Mode)\n\n' +
-        '📝 *Step 1/6:* What is the task title?\n\n' +
-        'Just type the task name, no symbols needed!\n\n' +
-        '*Example:* Team Meeting\n\n' +
-        'Or /cancel to abort.',
+        `➕ *Quick Add Task* (Interactive Mode)\n\n` +
+        `${user.bot_name} will guide you through creating a new task, My Lord.\n\n` +
+        `📝 *Step 1/6:* What is the task title?\n\n` +
+        `Just type the task name, no symbols needed!\n\n` +
+        `*Example:* Team Meeting\n\n` +
+        `Or /cancel to abort.`,
         { parse_mode: 'Markdown' }
       );
 
@@ -1139,7 +1143,7 @@ Please send your task details in this format:
 
       // Check if user is verified
       const result = await client.query(`
-        SELECT utc.user_id, u.name
+        SELECT utc.user_id, u.name, COALESCE(utc.bot_name, 'Levi') as bot_name
         FROM user_telegram_config utc
         JOIN users u ON utc.user_id = u.id
         WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
@@ -1185,9 +1189,10 @@ Please send your task details in this format:
 
       if (tasks.length === 0) {
         await bot.sendMessage(chatId,
-          '📅 *Today\'s Tasks*\n\n' +
-          '🎉 No tasks for today!\n\n' +
-          'Use /addtask to create a new task.',
+          `📅 *Today's Tasks*\n\n` +
+          `My Lord, ${user.bot_name} confirms you have no scheduled tasks for today!\n\n` +
+          `🎉 No tasks for today!\n\n` +
+          `Use /addtask to create a new task.`,
           {
             parse_mode: 'Markdown',
             reply_markup: {
@@ -1207,6 +1212,8 @@ Please send your task details in this format:
 
       let message = `
 📅 *Today's Tasks* - ${today.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+
+${user.bot_name} presents your daily task overview, My Lord:
 
 📊 *Overview:*
 • Pending: ${pendingTasks.length}
@@ -1386,7 +1393,7 @@ Please send your task details in this format:
 
       // Check if user is verified
       const result = await client.query(`
-        SELECT utc.user_id, u.name
+        SELECT utc.user_id, u.name, COALESCE(utc.bot_name, 'Levi') as bot_name
         FROM user_telegram_config utc
         JOIN users u ON utc.user_id = u.id
         WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
@@ -1426,9 +1433,10 @@ Please send your task details in this format:
 
       if (tasks.length === 0) {
         await bot.sendMessage(chatId,
-          '📋 *My Tasks*\n\n' +
-          '✨ No active tasks!\n\n' +
-          'Tap button below to add your first task.',
+          `📋 *My Tasks*\n\n` +
+          `My Lord, ${user.bot_name} reports that your task list is currently empty!\n\n` +
+          `✨ No active tasks!\n\n` +
+          `Tap button below to add your first task.`,
           {
             parse_mode: 'Markdown',
             reply_markup: {
@@ -1443,6 +1451,7 @@ Please send your task details in this format:
 
       // Send each task with action buttons
       const intro = `📋 *My Active Tasks* (${tasks.length})\n\n` +
+        `My Lord, ${user.bot_name} presents your current task roster:\n\n` +
         `Tap action buttons below each task:\n` +
         `✅ Complete | ✏️ Edit | 🗑️ Delete`;
 
@@ -1578,7 +1587,7 @@ ${task.description ? `_${task.description.substring(0, 80)}${task.description.le
 
       // Check if user is verified
       const result = await client.query(`
-        SELECT utc.user_id, u.name
+        SELECT utc.user_id, u.name, COALESCE(utc.bot_name, 'Levi') as bot_name
         FROM user_telegram_config utc
         JOIN users u ON utc.user_id = u.id
         WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
@@ -1650,8 +1659,9 @@ ${task.description ? `_${task.description.substring(0, 80)}${task.description.le
       const task = updateResult.rows[0];
       await bot.sendMessage(chatId,
         `✅ *Task Completed!*\n\n` +
+        `${user.bot_name} celebrates your accomplishment, My Lord!\n\n` +
         `~~${task.title}~~\n\n` +
-        `Great job! 🎉`,
+        `Great job! Keep up the momentum! 🎉`,
         { parse_mode: 'Markdown' }
       );
 
@@ -1674,7 +1684,7 @@ ${task.description ? `_${task.description.substring(0, 80)}${task.description.le
 
       // Check if user is verified
       const result = await client.query(`
-        SELECT utc.user_id, u.name
+        SELECT utc.user_id, u.name, COALESCE(utc.bot_name, 'Levi') as bot_name
         FROM user_telegram_config utc
         JOIN users u ON utc.user_id = u.id
         WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
@@ -1755,7 +1765,7 @@ Select a task to edit, or use:
       if (taskResult.rows.length === 0) {
         await bot.sendMessage(chatId,
           '❌ *Task Not Found*\n\n' +
-          'This task doesn\'t exist or doesn\'t belong to you.\n\n' +
+          `${user.bot_name} searched diligently, My Lord, but this task doesn\'t exist or doesn\'t belong to you.\n\n` +
           'Use /edittask to see your tasks.',
           { parse_mode: 'Markdown' }
         );
@@ -1827,7 +1837,7 @@ Send your updates now, or /cancel to abort.
 
       // Check if user is verified
       const result = await client.query(`
-        SELECT utc.user_id, u.name
+        SELECT utc.user_id, u.name, COALESCE(utc.bot_name, 'Levi') as bot_name
         FROM user_telegram_config utc
         JOIN users u ON utc.user_id = u.id
         WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
@@ -1902,7 +1912,7 @@ Select a task to delete, or use:
         client.release();
         await bot.sendMessage(chatId,
           '❌ *Task Not Found*\n\n' +
-          'This task doesn\'t exist or doesn\'t belong to you.\n\n' +
+          `${user.bot_name} searched diligently, My Lord, but this task doesn\'t exist or doesn\'t belong to you.\n\n` +
           'Use /deletetask to see your tasks.',
           { parse_mode: 'Markdown' }
         );
@@ -1921,6 +1931,8 @@ Select a task to delete, or use:
 
       const successMessage = `
 ✅ *Task Deleted Successfully!*
+
+${user.bot_name} has removed the task from your realm, My Lord:
 
 🗑️ Deleted task: *${task.title}*
 ${task.description ? `_${task.description}_\n` : ''}
@@ -1958,7 +1970,7 @@ Use /today to see your remaining tasks.
 
       // Check if user is verified
       const result = await client.query(`
-        SELECT utc.user_id, u.name
+        SELECT utc.user_id, u.name, COALESCE(utc.bot_name, 'Levi') as bot_name
         FROM user_telegram_config utc
         JOIN users u ON utc.user_id = u.id
         WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
@@ -1997,9 +2009,9 @@ Use /today to see your remaining tasks.
 
       if (routines.length === 0) {
         await bot.sendMessage(chatId,
-          '📋 *My Routines*\n\n' +
-          '🎯 You don\'t have any routine templates yet.\n\n' +
-          'Create your first routine template in the LifePath app to get started!',
+          `📋 *${user.bot_name} Presents Your Routines*\n\n` +
+          `${user.bot_name} reports that you have no routine templates yet, My Lord.\n\n` +
+          'Create your first routine template in the LifePath app to begin your journey!',
           { parse_mode: 'Markdown' }
         );
         return;
@@ -2009,13 +2021,13 @@ Use /today to see your remaining tasks.
       const inactiveRoutines = routines.filter(r => !r.is_active);
 
       let message = `
-📋 *My Routine Templates*
+📋 *${user.bot_name} Presents Your Routine Arsenal*
 
-You have ${routines.length} routine template${routines.length > 1 ? 's' : ''}
+${user.bot_name} has prepared ${routines.length} routine template${routines.length > 1 ? 's' : ''} for your command, My Lord:
 `;
 
       if (activeRoutines.length > 0) {
-        message += '\n\n✅ *ACTIVE ROUTINES:*\n';
+        message += '\n\n✅ *ACTIVE ROUTINES READY FOR BATTLE:*\n';
         activeRoutines.forEach((routine, idx) => {
           const statusEmoji = routine.has_tasks ? '📝' : '⚠️';
 
@@ -2029,7 +2041,7 @@ You have ${routines.length} routine template${routines.length > 1 ? 's' : ''}
       }
 
       if (inactiveRoutines.length > 0) {
-        message += '\n\n⏸️  *INACTIVE ROUTINES:*\n';
+        message += '\n\n⏸️  *INACTIVE ROUTINES IN RESERVE:*\n';
         inactiveRoutines.forEach((routine, idx) => {
           const statusEmoji = routine.has_tasks ? '📝' : '⚠️';
           message += `\n${idx + 1}. ${statusEmoji} ${routine.name}`;
@@ -2101,7 +2113,7 @@ You have ${routines.length} routine template${routines.length > 1 ? 's' : ''}
 
       // Check if user is verified
       const result = await client.query(`
-        SELECT utc.user_id, u.name
+        SELECT utc.user_id, u.name, COALESCE(utc.bot_name, 'Levi') as bot_name
         FROM user_telegram_config utc
         JOIN users u ON utc.user_id = u.id
         WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
@@ -2139,9 +2151,9 @@ You have ${routines.length} routine template${routines.length > 1 ? 's' : ''}
 
         if (routinesResult.rows.length === 0) {
           await bot.sendMessage(chatId,
-            '🔄 *Generate Routine*\n\n' +
-            '❌ You don\'t have any routine templates.\n\n' +
-            'Create a routine template first!',
+            `🔄 *${user.bot_name} Awaits Your Command*\n\n` +
+            `${user.bot_name} reports that you have no routine templates to generate from, My Lord.\n\n` +
+            'Create a routine template first to begin your conquests!',
             {
               parse_mode: 'Markdown',
               reply_markup: {
@@ -2159,17 +2171,17 @@ You have ${routines.length} routine template${routines.length > 1 ? 's' : ''}
         const inactiveRoutines = routinesResult.rows.filter(r => !r.is_active);
 
         let message = `
-🔄 *Generate Routine*
+🔄 *${user.bot_name} Offers Generation Powers*
 
-Choose a routine to generate tasks from:
+${user.bot_name} presents your routine options for generation, My Lord:
 
-*How to use:*
-• Click routine name to generate
+*How to command:*
+• Click routine name to generate tasks
 • Or use: \`/generateroutine <name>\`
 `;
 
         if (activeRoutines.length > 0) {
-          message += '\n\n✅ *ACTIVE ROUTINES:*\n';
+          message += '\n\n✅ *ACTIVE ROUTINES READY FOR DEPLOYMENT:*\n';
           activeRoutines.forEach((routine, idx) => {
             const statusEmoji = routine.has_tasks ? '📝' : '⚠️';
             message += `\n${idx + 1}. ${statusEmoji} *${routine.name}*`;
@@ -2182,7 +2194,7 @@ Choose a routine to generate tasks from:
         }
 
         if (inactiveRoutines.length > 0) {
-          message += '\n\n⏸️ *INACTIVE ROUTINES:*\n';
+          message += '\n\n⏸️ *INACTIVE ROUTINES STANDBY:*\n';
           inactiveRoutines.forEach((routine, idx) => {
             const statusEmoji = routine.has_tasks ? '📝' : '⚠️';
             message += `\n${idx + 1}. ${statusEmoji} ~~${routine.name}~~ *(Inactive)*`;
@@ -2364,7 +2376,7 @@ Send your routine info now, or /cancel to abort.
       const client = await pool.connect();
 
       const result = await client.query(`
-        SELECT utc.user_id, u.name
+        SELECT utc.user_id, u.name, COALESCE(utc.bot_name, 'Levi') as bot_name
         FROM user_telegram_config utc
         JOIN users u ON utc.user_id = u.id
         WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
@@ -2388,16 +2400,18 @@ Send your routine info now, or /cancel to abort.
         step: 'name',
         userId: user.user_id,
         userName: user.name,
+        botName: user.bot_name,
         routineData: {},
         tasks: []
       });
 
       await bot.sendMessage(chatId,
-        '📋 *Quick Create Routine* (Interactive Mode)\n\n' +
-        '📝 *Step 1/2:* What is the routine name?\n\n' +
-        'Just type the routine name, no symbols needed!\n\n' +
-        '*Example:* Morning Routine\n\n' +
-        'Or /cancel to abort.',
+        `📋 *${user.bot_name} Guides Your Routine Creation*\n\n` +
+        `${user.bot_name} will forge a new routine template for you, My Lord.\n\n` +
+        `📝 *Step 1/2:* What shall be the name of your routine?\n\n` +
+        `Simply type the routine name, no symbols required!\n\n` +
+        `*Example:* Morning Routine\n\n` +
+        `Or /cancel to abort the creation.`,
         { parse_mode: 'Markdown' }
       );
 
@@ -3611,7 +3625,7 @@ const handleTaskComplete = async (chatId, taskId) => {
 
     // Get user info
     const userResult = await client.query(`
-      SELECT utc.user_id, u.name
+      SELECT utc.user_id, u.name, COALESCE(utc.bot_name, 'Levi') as bot_name
       FROM user_telegram_config utc
       JOIN users u ON utc.user_id = u.id
       WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
@@ -3643,6 +3657,7 @@ const handleTaskComplete = async (chatId, taskId) => {
     const task = updateResult.rows[0];
     await bot.sendMessage(chatId,
       `✅ *Task Completed!*\n\n` +
+      `${user.bot_name} celebrates your accomplishment, My Lord!\n\n` +
       `~~${task.title}~~\n\n` +
       `Great job! Keep up the momentum! 🎉`,
       { parse_mode: 'Markdown' }
@@ -3661,7 +3676,7 @@ const handleTaskEditStart = async (chatId, taskId) => {
 
     // Get user info
     const userResult = await client.query(`
-      SELECT utc.user_id, u.name
+      SELECT utc.user_id, u.name, COALESCE(utc.bot_name, 'Levi') as bot_name
       FROM user_telegram_config utc
       JOIN users u ON utc.user_id = u.id
       WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
@@ -3693,6 +3708,8 @@ const handleTaskEditStart = async (chatId, taskId) => {
     // Show current task and edit options
     const message = `
 ✏️ *Edit Task*
+
+${user.bot_name} stands ready to assist with your task modifications, My Lord:
 
 *Current Task:*
 📝 *Title:* ${task.title}
@@ -4427,10 +4444,11 @@ const handleInteractiveTaskInput = async (chatId, text, userState) => {
         userStates.set(chatId, userState);
 
         await bot.sendMessage(chatId,
-          '✅ Title saved!\n\n' +
-          '📝 *Step 2/6:* Add a description (optional)\n\n' +
-          'Type a brief description, or send "-" to skip.\n\n' +
-          '*Example:* Discuss Q4 goals and project updates',
+          `✅ Title saved!\n\n` +
+          `${userState.botName} continues guiding you, My Lord.\n\n` +
+          `📝 *Step 2/6:* Add a description (optional)\n\n` +
+          `Type a brief description, or send "-" to skip.\n\n` +
+          `*Example:* Discuss Q4 goals and project updates`,
           { parse_mode: 'Markdown' }
         );
         break;
@@ -4442,9 +4460,10 @@ const handleInteractiveTaskInput = async (chatId, text, userState) => {
         userStates.set(chatId, userState);
 
         await bot.sendMessage(chatId,
-          '✅ Description saved!\n\n' +
-          '📊 *Step 3/6:* Select priority\n\n' +
-          'Choose task priority:',
+          `✅ Description saved!\n\n` +
+          `${userState.botName} needs to know the priority level, My Lord.\n\n` +
+          `📊 *Step 3/6:* Select priority\n\n` +
+          `Choose task priority:`,
           {
             parse_mode: 'Markdown',
             reply_markup: {
@@ -4465,11 +4484,12 @@ const handleInteractiveTaskInput = async (chatId, text, userState) => {
         userStates.set(chatId, userState);
 
         await bot.sendMessage(chatId,
-          '✅ Category saved!\n\n' +
-          '⏰ *Step 5/6:* What time will you start?\n\n' +
-          'Enter start time in HH:MM format (24-hour)\n\n' +
-          '*Example:* 09:00 or 14:30\n\n' +
-          '⚠️ *Required for reminders!*',
+          `✅ Category saved!\n\n` +
+          `${userState.botName} needs to know when you'll start this task, My Lord.\n\n` +
+          `⏰ *Step 5/6:* What time will you start?\n\n` +
+          `Enter start time in HH:MM format (24-hour)\n\n` +
+          `*Example:* 09:00 or 14:30\n\n` +
+          `⚠️ *Required for reminders!*`,
           { parse_mode: 'Markdown' }
         );
         break;
@@ -4492,10 +4512,11 @@ const handleInteractiveTaskInput = async (chatId, text, userState) => {
         userStates.set(chatId, userState);
 
         await bot.sendMessage(chatId,
-          '✅ Start time saved!\n\n' +
-          '⏰ *Step 6/6:* When will it end? (optional)\n\n' +
-          'Enter end time in HH:MM format, or send "-" to skip.\n\n' +
-          '*Example:* 10:00',
+          `✅ Start time saved!\n\n` +
+          `${userState.botName} is almost done setting up your task, My Lord.\n\n` +
+          `⏰ *Step 6/6:* When will it end? (optional)\n\n` +
+          `Enter end time in HH:MM format, or send "-" to skip.\n\n` +
+          `*Example:* 10:00`,
           { parse_mode: 'Markdown' }
         );
         break;
@@ -4540,26 +4561,29 @@ const createTaskFromInteractive = async (chatId, taskData, userId) => {
     // call the routine-specific creator instead and clear the flag.
     if (routineAttachMap.has(chatId)) {
       const routineId = routineAttachMap.get(chatId);
-      try {
-        const client = await pool.connect();
-        const res = await client.query('SELECT name FROM routine_templates WHERE id = $1 AND user_id = $2', [routineId, userId]);
-        client.release();
+      const client = await pool.connect();
+      const res = await client.query('SELECT name FROM routine_templates WHERE id = $1 AND user_id = $2', [routineId, userId]);
+      client.release();
 
-        const routineName = res.rows.length ? res.rows[0].name : 'Routine';
+      const routineName = res.rows.length ? res.rows[0].name : 'Routine';
 
-        // Delegate creation to the routine task creator
-        await createRoutineTaskFromInteractive(chatId, taskData, routineId, routineName, userId);
-        routineAttachMap.delete(chatId);
-        return;
-      } catch (err) {
-        console.error('Error attaching task to routine:', err);
-        // Fall through to normal task creation if anything fails
-      }
+      // Delegate creation to the routine task creator
+      await createRoutineTaskFromInteractive(chatId, taskData, routineId, routineName, userId);
+      routineAttachMap.delete(chatId);
+      return;
     }
     const { v4: uuidv4 } = await import('uuid');
     const taskId = uuidv4();
 
     const client = await pool.connect();
+
+    // Get bot name for personalized messages
+    const botNameResult = await client.query(`
+      SELECT COALESCE(bot_name, 'Levi') as bot_name
+      FROM user_telegram_config
+      WHERE telegram_chat_id = $1
+    `, [chatId]);
+    const botName = botNameResult.rows[0]?.bot_name || 'Levi';
 
     // Insert task
     const insertResult = await client.query(`
@@ -4600,6 +4624,8 @@ const createTaskFromInteractive = async (chatId, taskData, userId) => {
     const successMessage = `
 ✅ *Task Created Successfully!*
 
+${botName} has crafted your new task perfectly, My Lord:
+
 ${categoryEmoji} *${task.title}*
 ${task.description ? `_${task.description}_\n` : ''}
 ${emoji} *Priority:* ${task.priority.toUpperCase()}
@@ -4607,7 +4633,7 @@ ${emoji} *Priority:* ${task.priority.toUpperCase()}
 ⏰ *Time:* ${task.time_start}${task.time_end ? ` - ${task.time_end}` : ''}
 ⏰ *Reminders:* Scheduled
 
-*Quick Add completed!* 🎉
+*Task creation completed!* 🎉
 
 Use /quickadd again to add another task, or /mytasks to view all tasks.
     `;
@@ -4622,7 +4648,7 @@ Use /quickadd again to add another task, or /mytasks to view all tasks.
 
 // Helper function for interactive routine input (step-by-step)
 const handleInteractiveRoutineInput = async (chatId, text, userState) => {
-  const { step, routineData, tasks, userId } = userState;
+  const { step, routineData, tasks, userId, botName } = userState;
 
   try {
     switch (step) {
@@ -4633,10 +4659,11 @@ const handleInteractiveRoutineInput = async (chatId, text, userState) => {
         userStates.set(chatId, userState);
 
         await bot.sendMessage(chatId,
-          '✅ Routine name saved!\n\n' +
-          '📝 *Step 2/2:* Add a description (optional)\n\n' +
-          'Type a brief description, or send "-" to skip.\n\n' +
-          '*Example:* Daily morning productivity routine',
+          `✅ Routine name saved!\n\n` +
+          `${botName} continues guiding you, My Lord.\n\n` +
+          `📝 *Step 2/2:* Add a description (optional)\n\n` +
+          `Type a brief description, or send "-" to skip.\n\n` +
+          `*Example:* Daily morning productivity routine`,
           { parse_mode: 'Markdown' }
         );
         break;
@@ -4655,10 +4682,10 @@ const handleInteractiveRoutineInput = async (chatId, text, userState) => {
           userStates.set(chatId, userState);
 
           await bot.sendMessage(chatId,
-            '✅ *Routine Created Successfully!*\n\n' +
+            `✅ *${botName} Has Forged Your Routine!*\n\n` +
             `📋 *${routineData.name}*\n` +
             `${routineData.description ? `_${routineData.description}_\n\n` : '\n'}` +
-            'What would you like to do next?',
+            `${botName} awaits your command for what comes next, My Lord:`,
             {
               parse_mode: 'Markdown',
               reply_markup: {
@@ -4680,7 +4707,7 @@ const handleInteractiveRoutineInput = async (chatId, text, userState) => {
         break;
 
       default:
-        await bot.sendMessage(chatId, '❌ Unknown step. Please start again with /quickroutine');
+        await bot.sendMessage(chatId, `❌ Unknown step. Please start again with /quickroutine`);
         userStates.delete(chatId);
     }
   } catch (error) {
@@ -5246,7 +5273,7 @@ const handleGenerateRoutineNow = async (chatId, messageId, routineId) => {
 
     // Get user info
     const userResult = await client.query(`
-      SELECT utc.user_id, u.name
+      SELECT utc.user_id, u.name, COALESCE(utc.bot_name, 'Levi') as bot_name
       FROM user_telegram_config utc
       JOIN users u ON utc.user_id = u.id
       WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
@@ -5281,7 +5308,7 @@ const handleGenerateRoutineNow = async (chatId, messageId, routineId) => {
 
     if (!result.success) {
       await bot.editMessageText(
-        `❌ Failed to generate routine "${routine.name}".\n\n${result.error || 'Unknown error'}`,
+        `❌ ${user.bot_name} encountered an error, My Lord.\n\nFailed to generate routine "${routine.name}".\n\n${result.error || 'Unknown error'}`,
         { chat_id: chatId, message_id: messageId }
       );
       return;
@@ -5291,17 +5318,17 @@ const handleGenerateRoutineNow = async (chatId, messageId, routineId) => {
 
     if (tasksGenerated === 0) {
       await bot.editMessageText(
-        `⚠️ No new tasks generated from "${routine.name}".\n\nThe routine may have already been generated today.`,
+        `⚠️ ${user.bot_name} reports no new tasks generated, My Lord.\n\nThe routine "${routine.name}" may have already been deployed today.`,
         { chat_id: chatId, message_id: messageId }
       );
       return;
     }
 
     await bot.editMessageText(
-      `✅ *Routine Generated Successfully!*\n\n` +
+      `✅ *${user.bot_name} Has Forged Your Tasks!*\n\n` +
       `🗓️ Routine: ${routine.name}\n` +
-      `📋 *${tasksGenerated} tasks* added to your list\n\n` +
-      `Use /today to see your tasks!`,
+      `📋 *${tasksGenerated} tasks* added to your command, My Lord\n\n` +
+      `Use /today to survey your battlefield!`,
       {
         chat_id: chatId,
         message_id: messageId,
@@ -5515,10 +5542,16 @@ const handleTaskEdit = async (chatId, input, userId, taskId, currentTask) => {
     console.log(`🔧 handleTaskEdit called for task ${taskId}`);
     console.log(`📝 Input: "${input}"`);
 
-    const parts = input.split('|').map(p => p.trim());
+    // Get bot name for personalized messages
+    const client = await pool.connect();
+    const botNameResult = await client.query(`
+      SELECT COALESCE(utc.bot_name, 'Levi') as bot_name
+      FROM user_telegram_config utc
+      WHERE utc.user_id = $1
+    `, [userId]);
+    const botName = botNameResult.rows[0]?.bot_name || 'Levi';
 
-    // Parse input - use current values as defaults for empty fields
-    const title = parts[0] || currentTask.title;
+    const parts = input.split('|').map(p => p.trim());
     const description = parts[1] !== undefined && parts[1] !== '' ? parts[1] : currentTask.description;
     const priority = parts[2] || currentTask.priority;
     const category = parts[3] || currentTask.category;
@@ -5566,9 +5599,6 @@ const handleTaskEdit = async (chatId, input, userId, taskId, currentTask) => {
       return;
     }
 
-    const client = await pool.connect();
-
-    // Update task
     const updateResult = await client.query(`
       UPDATE tasks 
       SET title = $1, 
@@ -5626,6 +5656,8 @@ const handleTaskEdit = async (chatId, input, userId, taskId, currentTask) => {
 
     const successMessage = `
 ✅ *Task Updated Successfully!*
+
+${botName} has successfully refined your task, My Lord:
 
 ${statusEmoji} ${categoryEmoji} *${task.title}*
 ${task.description ? `_${task.description}_\n` : ''}
