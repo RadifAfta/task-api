@@ -1161,31 +1161,26 @@ Please send your task details in this format:
 
       const user = result.rows[0];
 
-      // Get today's tasks
+      // Define today's date for the query
       const today = new Date();
-      const todayStr = today.toISOString().split('T')[0];
+      const todayStr = today.toISOString().split('T')[0]; // YYYY-MM-DD format
 
-      const tasksResult = await client.query(`
-        SELECT * FROM tasks
-        WHERE user_id = $1
-        AND (
-          DATE(created_at) = $2
-          OR DATE(due_date) = $2
-          OR (due_date IS NULL AND status != 'done')
-        )
-        ORDER BY 
-          CASE priority
-            WHEN 'high' THEN 1
-            WHEN 'medium' THEN 2
-            WHEN 'low' THEN 3
-          END,
-          time_start ASC,
-          created_at DESC
-      `, [user.user_id, todayStr]);
+      // Get today's tasks using task service
+      const taskService = await import('../services/taskService.js');
+      const todayTasksResult = await taskService.default.getTodayTasks(user.user_id, todayStr);
+
+      if (!todayTasksResult.success) {
+        client.release();
+        await bot.sendMessage(chatId,
+          `❌ Error fetching tasks: ${todayTasksResult.error}`,
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+
+      const tasks = todayTasksResult.tasks;
 
       client.release();
-
-      const tasks = tasksResult.rows;
 
       if (tasks.length === 0) {
         await bot.sendMessage(chatId,
@@ -1412,24 +1407,23 @@ ${user.bot_name} presents your daily task overview, My Lord:
       const user = result.rows[0];
 
       // Get active tasks (not completed)
-      const tasksResult = await client.query(`
-        SELECT * FROM tasks
-        WHERE user_id = $1
-        AND status != 'done'
-        ORDER BY 
-          CASE priority
-            WHEN 'high' THEN 1
-            WHEN 'medium' THEN 2
-            WHEN 'low' THEN 3
-          END,
-          time_start ASC NULLS LAST,
-          created_at DESC
-        LIMIT 15
-      `, [user.user_id]);
+      const taskService = await import('./taskService.js');
+      const tasksResult = await taskService.default.getUserTasks(user.user_id, {
+        status: { $ne: 'done' },
+        sort: [
+          { field: 'priority', order: 'asc', customOrder: ['high', 'medium', 'low'] },
+          { field: 'time_start', order: 'asc' },
+          { field: 'created_at', order: 'desc' }
+        ],
+        limit: 15
+      });
 
-      client.release();
+      if (!tasksResult.success) {
+        await bot.sendMessage(chatId, '❌ Error fetching tasks. Please try again.');
+        return;
+      }
 
-      const tasks = tasksResult.rows;
+      const tasks = tasksResult.tasks;
 
       if (tasks.length === 0) {
         await bot.sendMessage(chatId,
@@ -1755,14 +1749,10 @@ Select a task to edit, or use:
       }
 
       // Verify task exists and belongs to user
-      const taskResult = await client.query(`
-        SELECT * FROM tasks
-        WHERE id = $1 AND user_id = $2
-      `, [taskId, user.user_id]);
+      const taskService = await import('./taskService.js');
+      const taskResult = await taskService.getTaskById(taskId, user.user_id);
 
-      client.release();
-
-      if (taskResult.rows.length === 0) {
+      if (!taskResult.success) {
         await bot.sendMessage(chatId,
           '❌ *Task Not Found*\n\n' +
           `${user.bot_name} searched diligently, My Lord, but this task doesn\'t exist or doesn\'t belong to you.\n\n` +
@@ -1772,7 +1762,7 @@ Select a task to edit, or use:
         return;
       }
 
-      const task = taskResult.rows[0];
+      const task = taskResult.task;
 
       // Set state for task editing
       userStates.set(chatId, {
@@ -1903,12 +1893,10 @@ Select a task to delete, or use:
       }
 
       // Verify task exists and belongs to user
-      const taskResult = await client.query(`
-        SELECT * FROM tasks
-        WHERE id = $1 AND user_id = $2
-      `, [taskId, user.user_id]);
+      const taskService = await import('./taskService.js');
+      const taskResult = await taskService.default.getTaskById(taskId, user.user_id);
 
-      if (taskResult.rows.length === 0) {
+      if (!taskResult.success) {
         client.release();
         await bot.sendMessage(chatId,
           '❌ *Task Not Found*\n\n' +
@@ -1919,7 +1907,7 @@ Select a task to delete, or use:
         return;
       }
 
-      const task = taskResult.rows[0];
+      const task = taskResult.task;
 
       // Delete the task
       await client.query(`
@@ -3638,23 +3626,19 @@ const handleTaskComplete = async (chatId, taskId) => {
     }
 
     const user = userResult.rows[0];
-
-    // Update task status
-    const updateResult = await client.query(`
-      UPDATE tasks
-      SET status = 'done', updated_at = CURRENT_TIMESTAMP
-      WHERE id = $1 AND user_id = $2
-      RETURNING *
-    `, [taskId, user.user_id]);
-
     client.release();
 
-    if (updateResult.rows.length === 0) {
-      await bot.sendMessage(chatId, '❌ Task not found');
+    // Use task service to complete task
+    const taskService = await import('../services/taskService.js');
+    const result = await taskService.default.completeTask(taskId, user.user_id);
+
+    if (!result.success) {
+      await bot.sendMessage(chatId, `❌ Error completing task: ${result.error}`);
       return;
     }
 
-    const task = updateResult.rows[0];
+    const task = result.task;
+
     await bot.sendMessage(chatId,
       `✅ *Task Completed!*\n\n` +
       `${user.bot_name} celebrates your accomplishment, My Lord!\n\n` +
@@ -3690,20 +3674,17 @@ const handleTaskEditStart = async (chatId, taskId) => {
 
     const user = userResult.rows[0];
 
-    // Get task
-    const taskResult = await client.query(`
-      SELECT * FROM tasks
-      WHERE id = $1 AND user_id = $2
-    `, [taskId, user.user_id]);
+    // Get task using task service
+    const taskService = await import('../services/taskService.js');
+    const taskResult = await taskService.default.getTaskById(user.user_id, taskId);
 
-    client.release();
-
-    if (taskResult.rows.length === 0) {
+    if (!taskResult.success) {
+      client.release();
       await bot.sendMessage(chatId, '❌ Task not found');
       return;
     }
 
-    const task = taskResult.rows[0];
+    const task = taskResult.task;
 
     // Show current task and edit options
     const message = `
@@ -3844,21 +3825,18 @@ const handleEditField = async (chatId, taskId, field, promptMessage, buttonType 
     }
 
     const user = userResult.rows[0];
-
-    // Get current task
-    const taskResult = await client.query(`
-      SELECT * FROM tasks
-      WHERE id = $1 AND user_id = $2
-    `, [taskId, user.user_id]);
-
     client.release();
 
-    if (taskResult.rows.length === 0) {
+    // Import task service and get task
+    const taskService = await import('../services/taskService.js');
+    const result = await taskService.default.getTaskById(user.user_id, taskId);
+
+    if (!result.success) {
       await bot.sendMessage(chatId, '❌ Task not found');
       return;
     }
 
-    const task = taskResult.rows[0];
+    const task = result.task;
 
     // Set state for field editing
     userStates.set(chatId, {
@@ -4216,21 +4194,18 @@ const handleTaskDeleteConfirm = async (chatId, messageId, taskId) => {
     }
 
     const user = userResult.rows[0];
-
-    // Get task
-    const taskResult = await client.query(`
-      SELECT * FROM tasks
-      WHERE id = $1 AND user_id = $2
-    `, [taskId, user.user_id]);
-
     client.release();
 
-    if (taskResult.rows.length === 0) {
+    // Import task service and get task
+    const taskService = await import('../services/taskService.js');
+    const result = await taskService.default.getTaskById(user.user_id, taskId);
+
+    if (!result.success) {
       await bot.sendMessage(chatId, '❌ Task not found');
       return;
     }
 
-    const task = taskResult.rows[0];
+    const task = result.task;
 
     const confirmMessage = `
 ⚠️ *Confirm Delete*
@@ -4283,35 +4258,21 @@ const handleTaskDeleteExecute = async (chatId, messageId, taskId) => {
     }
 
     const user = userResult.rows[0];
+    client.release();
 
-    // Get task for confirmation message
-    const taskResult = await client.query(`
-      SELECT * FROM tasks
-      WHERE id = $1 AND user_id = $2
-    `, [taskId, user.user_id]);
+    // Import task service and delete task
+    const taskService = await import('../services/taskService.js');
+    const result = await taskService.default.deleteTask(taskId, user.user_id);
 
-    if (taskResult.rows.length === 0) {
-      client.release();
-      await bot.editMessageText('❌ Task not found', {
+    if (!result.success) {
+      await bot.editMessageText(`❌ Error deleting task: ${result.error}`, {
         chat_id: chatId,
         message_id: messageId
       });
       return;
     }
 
-    const task = taskResult.rows[0];
-
-    // Delete associated reminders first
-    await client.query(`
-      DELETE FROM scheduled_reminders WHERE task_id = $1
-    `, [taskId]);
-
-    // Delete task
-    await client.query(`
-      DELETE FROM tasks WHERE id = $1 AND user_id = $2
-    `, [taskId, user.user_id]);
-
-    client.release();
+    const task = result.task;
 
     await bot.editMessageText(
       `✅ *Task Deleted*\n\n~~${task.title}~~\n\nThe task and its reminders have been removed.`,
@@ -4572,50 +4533,26 @@ const createTaskFromInteractive = async (chatId, taskData, userId) => {
       routineAttachMap.delete(chatId);
       return;
     }
-    const { v4: uuidv4 } = await import('uuid');
-    const taskId = uuidv4();
 
-    const client = await pool.connect();
+    // Import task service and create task
+    const taskService = await import('../services/taskService.js');
+    const result = await taskService.default.createTask(userId, taskData);
+
+    if (!result.success) {
+      await bot.sendMessage(chatId, `❌ Error creating task: ${result.error}`);
+      return;
+    }
+
+    const task = result.task;
 
     // Get bot name for personalized messages
+    const client = await pool.connect();
     const botNameResult = await client.query(`
       SELECT COALESCE(bot_name, 'Levi') as bot_name
       FROM user_telegram_config
       WHERE telegram_chat_id = $1
     `, [chatId]);
     const botName = botNameResult.rows[0]?.bot_name || 'Levi';
-
-    // Insert task
-    const insertResult = await client.query(`
-      INSERT INTO tasks (id, user_id, title, description, status, priority, category, time_start, time_end, created_at, updated_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-      RETURNING *
-    `, [
-      taskId,
-      userId,
-      taskData.title,
-      taskData.description || '',
-      'pending',
-      taskData.priority || 'medium',
-      taskData.category || 'work',
-      taskData.time_start,
-      taskData.time_end
-    ]);
-
-    const task = insertResult.rows[0];
-
-    // Schedule reminders
-    try {
-      const reminderService = await import('../services/reminderService.js');
-      await reminderService.scheduleRemindersForTask({
-        ...task,
-        time_start: taskData.time_start
-      });
-      console.log(`⏰ Reminders scheduled for task ${taskId}`);
-    } catch (reminderError) {
-      console.error('⚠️ Failed to schedule reminders:', reminderError);
-    }
-
     client.release();
 
     const emoji = taskData.priority === 'high' ? '🔴' : taskData.priority === 'medium' ? '🟡' : '🟢';
@@ -5460,40 +5397,26 @@ const handleTaskInput = async (chatId, input, userId, userName) => {
       return;
     }
 
-    // Import uuid
-    const { v4: uuidv4 } = await import('uuid');
-    const taskId = uuidv4();
-    console.log(`🆔 Generated task ID: ${taskId}`);
+    // Prepare task data
+    const taskData = {
+      title: title,
+      description: description,
+      priority: finalPriority,
+      category: finalCategory,
+      time_start: finalTimeStart,
+      time_end: finalTimeEnd
+    };
 
-    const client = await pool.connect();
-    console.log(`🔌 Database connected`);
+    // Import task service and create task
+    const taskService = await import('../services/taskService.js');
+    const result = await taskService.default.createTask(userId, taskData);
 
-    // Insert task
-    const insertResult = await client.query(`
-      INSERT INTO tasks (id, user_id, title, description, status, priority, category, time_start, time_end, created_at, updated_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-      RETURNING *
-    `, [taskId, userId, title, description, 'pending', finalPriority, finalCategory, finalTimeStart, finalTimeEnd]);
-
-    console.log(`💾 Task inserted:`, insertResult.rows[0]);
-
-    const task = insertResult.rows[0];
-
-    // Schedule reminders for the new task
-    try {
-      const reminderService = await import('../services/reminderService.js');
-      await reminderService.scheduleRemindersForTask({
-        ...task,
-        time_start: finalTimeStart
-      });
-      console.log(`⏰ Reminders scheduled for task ${taskId}`);
-    } catch (reminderError) {
-      console.error('⚠️ Failed to schedule reminders:', reminderError);
-      // Continue even if reminder scheduling fails
+    if (!result.success) {
+      await bot.sendMessage(chatId, `❌ Error creating task: ${result.error}`);
+      return;
     }
 
-    client.release();
-    console.log(`🔌 Database connection released`);
+    const task = result.task;
 
     const emoji = finalPriority === 'high' ? '🔴' : finalPriority === 'medium' ? '🟡' : '🟢';
     const categoryEmoji = finalCategory === 'work' ? '💼' : finalCategory === 'learn' ? '📚' : '🧘';
@@ -5542,16 +5465,8 @@ const handleTaskEdit = async (chatId, input, userId, taskId, currentTask) => {
     console.log(`🔧 handleTaskEdit called for task ${taskId}`);
     console.log(`📝 Input: "${input}"`);
 
-    // Get bot name for personalized messages
-    const client = await pool.connect();
-    const botNameResult = await client.query(`
-      SELECT COALESCE(utc.bot_name, 'Levi') as bot_name
-      FROM user_telegram_config utc
-      WHERE utc.user_id = $1
-    `, [userId]);
-    const botName = botNameResult.rows[0]?.bot_name || 'Levi';
-
     const parts = input.split('|').map(p => p.trim());
+    const title = parts[0] !== undefined && parts[0] !== '' ? parts[0] : currentTask.title;
     const description = parts[1] !== undefined && parts[1] !== '' ? parts[1] : currentTask.description;
     const priority = parts[2] || currentTask.priority;
     const category = parts[3] || currentTask.category;
@@ -5599,45 +5514,36 @@ const handleTaskEdit = async (chatId, input, userId, taskId, currentTask) => {
       return;
     }
 
-    const updateResult = await client.query(`
-      UPDATE tasks 
-      SET title = $1, 
-          description = $2, 
-          priority = $3, 
-          category = $4, 
-          time_start = $5, 
-          time_end = $6, 
-          status = $7,
-          updated_at = CURRENT_TIMESTAMP
-      WHERE id = $8 AND user_id = $9
-      RETURNING *
-    `, [title, description, finalPriority, finalCategory, finalTimeStart, finalTimeEnd, finalStatus, taskId, userId]);
+    // Prepare update data
+    const updateData = {
+      title: title,
+      description: description,
+      priority: finalPriority,
+      category: finalCategory,
+      time_start: finalTimeStart,
+      time_end: finalTimeEnd,
+      status: finalStatus
+    };
 
-    console.log(`💾 Task updated:`, updateResult.rows[0]);
+    // Import task service and update task
+    const taskService = await import('../services/taskService.js');
+    const result = await taskService.default.updateTask(userId, taskId, updateData);
 
-    const task = updateResult.rows[0];
-
-    // Reschedule reminders if time changed and status is not done
-    if (finalStatus !== 'done' && finalTimeStart) {
-      try {
-        const reminderService = await import('../services/reminderService.js');
-        // Delete old reminders
-        await client.query(`
-          DELETE FROM reminders 
-          WHERE task_id = $1 AND status = 'pending'
-        `, [taskId]);
-
-        // Schedule new reminders
-        await reminderService.scheduleRemindersForTask({
-          ...task,
-          time_start: finalTimeStart
-        });
-        console.log(`⏰ Reminders rescheduled for task ${taskId}`);
-      } catch (reminderError) {
-        console.error('⚠️ Failed to reschedule reminders:', reminderError);
-      }
+    if (!result.success) {
+      await bot.sendMessage(chatId, `❌ Error updating task: ${result.error}`);
+      return;
     }
 
+    const task = result.task;
+
+    // Get bot name for personalized messages
+    const client = await pool.connect();
+    const botNameResult = await client.query(`
+      SELECT COALESCE(utc.bot_name, 'Levi') as bot_name
+      FROM user_telegram_config utc
+      WHERE utc.user_id = $1
+    `, [userId]);
+    const botName = botNameResult.rows[0]?.bot_name || 'Levi';
     client.release();
 
     const emoji = finalPriority === 'high' ? '🔴' : finalPriority === 'medium' ? '🟡' : '🟢';
