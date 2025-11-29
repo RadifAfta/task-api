@@ -1,4 +1,8 @@
 import { pool } from '../config/db.js';
+import {
+  findUserByEmail as findUserByEmailModel,
+  createUser as createUserModel
+} from '../models/userModel.js';
 
 /**
  * User Service - Business Logic Layer for User Management
@@ -115,16 +119,10 @@ class UserService {
    */
   static async findUserByEmail(email) {
     try {
-      const client = await pool.connect();
+      // Use model to find user
+      const user = await findUserByEmailModel(email);
 
-      const result = await client.query(
-        'SELECT id, email, name, password_hash FROM users WHERE email = $1',
-        [email]
-      );
-
-      client.release();
-
-      if (result.rows.length === 0) {
+      if (!user) {
         return {
           success: false,
           error: 'User not found',
@@ -134,7 +132,7 @@ class UserService {
 
       return {
         success: true,
-        user: result.rows[0]
+        user: user
       };
     } catch (error) {
       console.error('Error finding user by email:', error);
@@ -308,22 +306,17 @@ class UserService {
    */
   static async createUser(userData) {
     try {
-      const { v4: uuidv4 } = await import('uuid');
-      const userId = uuidv4();
-
-      const client = await pool.connect();
-
-      const result = await client.query(`
-        INSERT INTO users (id, name, email, password_hash, created_at, updated_at)
-        VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-        RETURNING id, name, email
-      `, [userId, userData.name, userData.email, userData.passwordHash]);
-
-      client.release();
+      // Use model to create user
+      const user = await createUserModel({
+        name: userData.name,
+        email: userData.email,
+        passwordHash: userData.passwordHash,
+        role: 'user'
+      });
 
       return {
         success: true,
-        user: result.rows[0]
+        user: user
       };
     } catch (error) {
       console.error('Error creating user:', error);

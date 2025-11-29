@@ -1,4 +1,6 @@
 import { pool } from '../config/db.js';
+import { updateTask as updateTaskModel } from '../models/taskModel.js';
+import { updateRoutineTemplate } from '../models/routineModel.js';
 
 /**
  * Field Service - Business Logic Layer for Field Editing Operations
@@ -16,30 +18,32 @@ class FieldService {
    */
   static async updateTaskField(taskId, userId, field, value) {
     try {
-      const client = await pool.connect();
-
       // Validate field name
       const allowedFields = ['title', 'description', 'priority', 'category', 'time_start', 'time_end', 'status'];
       if (!allowedFields.includes(field)) {
-        client.release();
         return {
           success: false,
           error: `Invalid field: ${field}`
         };
       }
 
-      // Build update query
-      const query = `
-        UPDATE tasks
-        SET ${field} = $1, updated_at = CURRENT_TIMESTAMP
-        WHERE id = $2 AND user_id = $3
-        RETURNING *
-      `;
+      // Map field to model field name
+      const fieldMapping = {
+        'time_start': 'time_start',
+        'time_end': 'time_end',
+        'due_date': 'due_date'
+      };
 
-      const result = await client.query(query, [value, taskId, userId]);
-      client.release();
+      const modelField = fieldMapping[field] || field;
 
-      if (result.rows.length === 0) {
+      // Create update object for model
+      const updateData = {};
+      updateData[modelField] = value;
+
+      // Use model to update task
+      const updatedTask = await updateTaskModel(taskId, userId, updateData);
+
+      if (!updatedTask) {
         return {
           success: false,
           error: 'Task not found or access denied'
@@ -48,7 +52,7 @@ class FieldService {
 
       return {
         success: true,
-        task: result.rows[0]
+        task: updatedTask
       };
     } catch (error) {
       console.error('Error updating task field:', error);
@@ -69,30 +73,30 @@ class FieldService {
    */
   static async updateRoutineField(routineId, userId, field, value) {
     try {
-      const client = await pool.connect();
-
       // Validate field name
       const allowedFields = ['name', 'description', 'is_active'];
       if (!allowedFields.includes(field)) {
-        client.release();
         return {
           success: false,
           error: `Invalid field: ${field}`
         };
       }
 
-      // Build update query
-      const query = `
-        UPDATE routine_templates
-        SET ${field} = $1, updated_at = CURRENT_TIMESTAMP
-        WHERE id = $2 AND user_id = $3
-        RETURNING *
-      `;
+      // Map field to model field name
+      const fieldMapping = {
+        'is_active': 'isActive'
+      };
 
-      const result = await client.query(query, [value, routineId, userId]);
-      client.release();
+      const modelField = fieldMapping[field] || field;
 
-      if (result.rows.length === 0) {
+      // Create update object for model
+      const updateData = {};
+      updateData[modelField] = value;
+
+      // Use model to update routine template
+      const updatedRoutine = await updateRoutineTemplate(routineId, userId, updateData);
+
+      if (!updatedRoutine) {
         return {
           success: false,
           error: 'Routine template not found or access denied'
@@ -101,7 +105,7 @@ class FieldService {
 
       return {
         success: true,
-        routine: result.rows[0]
+        routine: updatedRoutine
       };
     } catch (error) {
       console.error('Error updating routine field:', error);
@@ -218,19 +222,15 @@ class FieldService {
    */
   static async updateTaskTime(taskId, userId, timeStart, timeEnd) {
     try {
-      const client = await pool.connect();
+      // Use model to update task time fields
+      const updateData = {
+        time_start: timeStart,
+        time_end: timeEnd
+      };
 
-      const query = `
-        UPDATE tasks
-        SET time_start = $1, time_end = $2, updated_at = CURRENT_TIMESTAMP
-        WHERE id = $3 AND user_id = $4
-        RETURNING *
-      `;
+      const updatedTask = await updateTaskModel(taskId, userId, updateData);
 
-      const result = await client.query(query, [timeStart, timeEnd, taskId, userId]);
-      client.release();
-
-      if (result.rows.length === 0) {
+      if (!updatedTask) {
         return {
           success: false,
           error: 'Task not found or access denied'
@@ -239,7 +239,7 @@ class FieldService {
 
       return {
         success: true,
-        task: result.rows[0]
+        task: updatedTask
       };
     } catch (error) {
       console.error('Error updating task time:', error);

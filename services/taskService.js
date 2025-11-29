@@ -1,4 +1,11 @@
 import { pool } from '../config/db.js';
+import {
+  createTask as createTaskModel,
+  getTasksByUser as getTasksByUserModel,
+  getTaskById as getTaskByIdModel,
+  updateTask as updateTaskModel,
+  deleteTask as deleteTaskModel
+} from '../models/taskModel.js';
 
 /**
  * Task Service - Business Logic Layer for Task Management
@@ -20,29 +27,18 @@ class TaskService {
    */
   static async createTask(userId, taskData) {
     try {
-      const { v4: uuidv4 } = await import('uuid');
-      const taskId = uuidv4();
-
-      const client = await pool.connect();
-
-      // Insert task
-      const insertResult = await client.query(`
-        INSERT INTO tasks (id, user_id, title, description, status, priority, category, time_start, time_end, created_at, updated_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-        RETURNING *
-      `, [
-        taskId,
+      // Use model to create task
+      const task = await createTaskModel(
         userId,
         taskData.title,
         taskData.description || '',
         'pending',
         taskData.priority || 'medium',
         taskData.category || 'work',
+        null, // dueDate
         taskData.time_start,
         taskData.time_end
-      ]);
-
-      const task = insertResult.rows[0];
+      );
 
       // Schedule reminders
       try {
@@ -51,12 +47,10 @@ class TaskService {
           ...task,
           time_start: taskData.time_start
         });
-        console.log(`⏰ Reminders scheduled for task ${taskId}`);
+        console.log(`⏰ Reminders scheduled for task ${task.id}`);
       } catch (reminderError) {
         console.error('⚠️ Failed to schedule reminders:', reminderError);
       }
-
-      client.release();
 
       return {
         success: true,
@@ -80,16 +74,10 @@ class TaskService {
    */
   static async getTaskById(userId, taskId) {
     try {
-      const client = await pool.connect();
+      // Use model to get task
+      const task = await getTaskByIdModel(taskId, userId);
 
-      const result = await client.query(`
-        SELECT * FROM tasks
-        WHERE id = $1 AND user_id = $2
-      `, [taskId, userId]);
-
-      client.release();
-
-      if (result.rows.length === 0) {
+      if (!task) {
         return {
           success: false,
           error: 'Task not found or access denied'
@@ -98,7 +86,7 @@ class TaskService {
 
       return {
         success: true,
-        task: result.rows[0]
+        task: task
       };
 
     } catch (error) {
@@ -118,68 +106,80 @@ class TaskService {
    */
   static async getUserTasks(userId, filters = {}) {
     try {
-      const client = await pool.connect();
-
-      let query = 'SELECT * FROM tasks WHERE user_id = $1';
-      let params = [userId];
-      let paramIndex = 2;
-
-      // Add filters
-      if (filters.status && typeof filters.status === 'string') {
-        query += ` AND status = $${paramIndex}`;
-        params.push(filters.status);
-        paramIndex++;
-      }
+      // Convert service filters to model options
+      const options = {
+        status: filters.status,
+        category: filters.category,
+        search: filters.search,
+        limit: filters.limit,
+        offset: filters.offset
+      };
 
       // Handle status not equal filter
       if (filters.status && typeof filters.status === 'object' && filters.status.$ne) {
+        // For now, we'll handle this in service layer since model doesn't support complex filters
+        const client = await pool.connect();
+
+        let query = 'SELECT * FROM tasks WHERE user_id = $1';
+        let params = [userId];
+        let paramIndex = 2;
+
+        // Add status not equal filter
         query += ` AND status != $${paramIndex}`;
         params.push(filters.status.$ne);
         paramIndex++;
+
+        if (filters.category) {
+          query += ` AND category = $${paramIndex}`;
+          params.push(filters.category);
+          paramIndex++;
+        }
+
+        if (filters.priority) {
+          query += ` AND priority = $${paramIndex}`;
+          params.push(filters.priority);
+          paramIndex++;
+        }
+
+        // Handle sorting
+        if (filters.sort && Array.isArray(filters.sort)) {
+          const sortClauses = filters.sort.map(sortItem => {
+            if (sortItem.customOrder) {
+              // Handle custom ordering for priority
+              return `CASE ${sortItem.field}
+                ${sortItem.customOrder.map((val, idx) => `WHEN '${val}' THEN ${idx}`).join(' ')}
+                END ${sortItem.order.toUpperCase()}`;
+            } else {
+              return `${sortItem.field} ${sortItem.order.toUpperCase()}`;
+            }
+          });
+          query += ` ORDER BY ${sortClauses.join(', ')}`;
+        } else {
+          query += ' ORDER BY created_at DESC';
+        }
+
+        // Handle limit
+        if (filters.limit) {
+          query += ` LIMIT $${paramIndex}`;
+          params.push(filters.limit);
+          paramIndex++;
+        }
+
+        const result = await client.query(query, params);
+        client.release();
+
+        return {
+          success: true,
+          tasks: result.rows
+        };
       }
 
-      if (filters.category) {
-        query += ` AND category = $${paramIndex}`;
-        params.push(filters.category);
-        paramIndex++;
-      }
-
-      if (filters.priority) {
-        query += ` AND priority = $${paramIndex}`;
-        params.push(filters.priority);
-        paramIndex++;
-      }
-
-      // Handle sorting
-      if (filters.sort && Array.isArray(filters.sort)) {
-        const sortClauses = filters.sort.map(sortItem => {
-          if (sortItem.customOrder) {
-            // Handle custom ordering for priority
-            return `CASE ${sortItem.field}
-              ${sortItem.customOrder.map((val, idx) => `WHEN '${val}' THEN ${idx}`).join(' ')}
-              END ${sortItem.order.toUpperCase()}`;
-          } else {
-            return `${sortItem.field} ${sortItem.order.toUpperCase()}`;
-          }
-        });
-        query += ` ORDER BY ${sortClauses.join(', ')}`;
-      } else {
-        query += ' ORDER BY created_at DESC';
-      }
-
-      // Handle limit
-      if (filters.limit) {
-        query += ` LIMIT $${paramIndex}`;
-        params.push(filters.limit);
-        paramIndex++;
-      }
-
-      const result = await client.query(query, params);
-      client.release();
+      // Use model for simple filters
+      const result = await getTasksByUserModel(userId, options);
 
       return {
         success: true,
-        tasks: result.rows
+        tasks: result.tasks
       };
 
     } catch (error) {
@@ -246,60 +246,37 @@ class TaskService {
    */
   static async updateTask(taskId, userId, updateData) {
     try {
-      const client = await pool.connect();
+      // Map updateData to model fields
+      const fields = {
+        title: updateData.title,
+        description: updateData.description,
+        status: updateData.status,
+        priority: updateData.priority,
+        category: updateData.category,
+        due_date: updateData.due_date,
+        time_start: updateData.time_start,
+        time_end: updateData.time_end
+      };
 
-      // Build dynamic update query
-      const fields = [];
-      const values = [];
-      let paramIndex = 1;
+      const updatedTask = await updateTaskModel(taskId, userId, fields);
 
-      Object.keys(updateData).forEach(key => {
-        if (updateData[key] !== undefined) {
-          fields.push(`${key} = $${paramIndex}`);
-          values.push(updateData[key]);
-          paramIndex++;
-        }
-      });
-
-      if (fields.length === 0) {
-        client.release();
-        return {
-          success: false,
-          error: 'No fields to update'
-        };
-      }
-
-      fields.push('updated_at = CURRENT_TIMESTAMP');
-
-      const query = `
-        UPDATE tasks
-        SET ${fields.join(', ')}
-        WHERE id = $${paramIndex} AND user_id = $${paramIndex + 1}
-        RETURNING *
-      `;
-
-      values.push(taskId, userId);
-
-      const result = await client.query(query, values);
-
-      if (result.rows.length === 0) {
-        client.release();
+      if (!updatedTask) {
         return {
           success: false,
           error: 'Task not found or access denied'
         };
       }
 
-      const updatedTask = result.rows[0];
-
       // Reschedule reminders if time changed and status is not done
       if (updateData.time_start && updatedTask.status !== 'done') {
         try {
           const reminderService = await import('../services/reminderService.js');
-          // Delete old reminders
+          // Delete old reminders - this might need to be moved to model or kept here
+          const client = await pool.connect();
           await client.query(`
             DELETE FROM scheduled_reminders WHERE task_id = $1 AND status = 'pending'
           `, [taskId]);
+          client.release();
 
           // Schedule new reminders
           await reminderService.scheduleRemindersForTask({
@@ -311,8 +288,6 @@ class TaskService {
           console.error('⚠️ Failed to reschedule reminders:', reminderError);
         }
       }
-
-      client.release();
 
       return {
         success: true,
@@ -336,18 +311,10 @@ class TaskService {
    */
   static async completeTask(taskId, userId) {
     try {
-      const client = await pool.connect();
+      // Use model to update task status to done
+      const updatedTask = await updateTaskModel(taskId, userId, { status: 'done' });
 
-      const result = await client.query(`
-        UPDATE tasks
-        SET status = 'done', updated_at = CURRENT_TIMESTAMP
-        WHERE id = $1 AND user_id = $2
-        RETURNING *
-      `, [taskId, userId]);
-
-      client.release();
-
-      if (result.rows.length === 0) {
+      if (!updatedTask) {
         return {
           success: false,
           error: 'Task not found or access denied'
@@ -356,7 +323,7 @@ class TaskService {
 
       return {
         success: true,
-        task: result.rows[0]
+        task: updatedTask
       };
 
     } catch (error) {
@@ -383,15 +350,12 @@ class TaskService {
         DELETE FROM scheduled_reminders WHERE task_id = $1
       `, [taskId]);
 
-      // Delete task
-      const result = await client.query(`
-        DELETE FROM tasks WHERE id = $1 AND user_id = $2
-        RETURNING *
-      `, [taskId, userId]);
+      // Delete task using model
+      const deletedTask = await deleteTaskModel(taskId, userId);
 
       client.release();
 
-      if (result.rows.length === 0) {
+      if (!deletedTask) {
         return {
           success: false,
           error: 'Task not found or access denied'
@@ -400,7 +364,7 @@ class TaskService {
 
       return {
         success: true,
-        task: result.rows[0]
+        task: deletedTask
       };
 
     } catch (error) {

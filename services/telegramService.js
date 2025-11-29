@@ -1904,120 +1904,16 @@ Use /today to see your remaining tasks.
     console.log(`📋 /myroutines command received from ${msg.from.username || msg.from.first_name} (${chatId})`);
 
     try {
-      const client = await pool.connect();
+      // Import controller and view
+      const TelegramController = await import('../controllers/telegramController.js');
+      const TelegramView = await import('../views/telegramView.js');
 
-      // Check if user is verified
-      const userService = await import('./userService.js');
-      const userResult = await userService.default.verifyUserByChatId(chatId);
+      // Handle business logic
+      const result = await TelegramController.default.handleMyRoutines(chatId);
 
-      if (!userResult.success) {
-        await bot.sendMessage(chatId,
-          '❌ *Not Connected*\n\n' +
-          'Please connect your Telegram account first using /verify or /login',
-          { parse_mode: 'Markdown' }
-        );
-        return;
-      }
-
-      const user = userResult.user;
-
-      // Get user's routine templates using routine service
-      const routineService = await import('./routineService.js');
-      const routinesResult = await routineService.default.getRoutineTemplatesByUser(user.user_id);
-
-      if (!routinesResult.success) {
-        await bot.sendMessage(chatId, '❌ Error fetching routines. Please try again.');
-        return;
-      }
-
-      const routines = routinesResult.routines;
-
-      if (routines.length === 0) {
-        await bot.sendMessage(chatId,
-          `📋 *${user.bot_name} Presents Your Routines*\n\n` +
-          `${user.bot_name} reports that you have no routine templates yet, My Lord.\n\n` +
-          'Create your first routine template in the LifePath app to begin your journey!',
-          { parse_mode: 'Markdown' }
-        );
-        return;
-      }
-
-      const activeRoutines = routines.filter(r => r.is_active);
-      const inactiveRoutines = routines.filter(r => !r.is_active);
-
-      let message = `
-📋 *${user.bot_name} Presents Your Routine Arsenal*
-
-${user.bot_name} has prepared ${routines.length} routine template${routines.length > 1 ? 's' : ''} for your command, My Lord:
-`;
-
-      if (activeRoutines.length > 0) {
-        message += '\n\n✅ *ACTIVE ROUTINES READY FOR BATTLE:*\n';
-        activeRoutines.forEach((routine, idx) => {
-          const statusEmoji = routine.has_tasks ? '📝' : '⚠️';
-
-          message += `\n${idx + 1}. ${statusEmoji} *${routine.name}*`;
-          if (routine.description) {
-            message += `\n   📄 ${routine.description}`;
-          }
-          message += `\n   📋 ${routine.tasks_count} task${routine.tasks_count !== 1 ? 's' : ''}`;
-          message += `\n   📅 Created: ${new Date(routine.created_at).toLocaleDateString()}\n`;
-        });
-      }
-
-      if (inactiveRoutines.length > 0) {
-        message += '\n\n⏸️  *INACTIVE ROUTINES IN RESERVE:*\n';
-        inactiveRoutines.forEach((routine, idx) => {
-          const statusEmoji = routine.has_tasks ? '📝' : '⚠️';
-          message += `\n${idx + 1}. ${statusEmoji} ${routine.name}`;
-          message += `\n   📋 ${routine.tasks_count} task${routine.tasks_count !== 1 ? 's' : ''}`;
-          message += `\n   📅 Created: ${new Date(routine.created_at).toLocaleDateString()}\n`;
-        });
-      }
-
-      message += '\n💡 *Quick Actions:*';
-      message += '\n• Use buttons below to manage routines';
-      message += '\n• Tap routine name to see options';
-
-      // Create dynamic keyboard with routine management options
-      const keyboard = {
-        inline_keyboard: []
-      };
-
-      // Add buttons for active routines
-      if (activeRoutines.length > 0) {
-        activeRoutines.forEach((routine) => {
-          keyboard.inline_keyboard.push([
-            { text: `📝 ${routine.name}`, callback_data: `routine_manage_${routine.id}` },
-            { text: '🚀 Generate', callback_data: `generate_routine_now_${routine.id}` }
-          ]);
-        });
-      }
-
-      // Add buttons for inactive routines
-      if (inactiveRoutines.length > 0) {
-        inactiveRoutines.forEach((routine) => {
-          keyboard.inline_keyboard.push([
-            { text: `📝 ${routine.name}`, callback_data: `routine_manage_${routine.id}` },
-            { text: '▶️ Activate', callback_data: `activate_routine_${routine.id}` }
-          ]);
-        });
-      }
-
-      // Add general action buttons
-      keyboard.inline_keyboard.push([
-        { text: '🚀 Generate All Active', callback_data: 'generate_all_routines' },
-        { text: '➕ Create New Routine', callback_data: 'cmd_addroutine' }
-      ]);
-      keyboard.inline_keyboard.push([
-        { text: '🔄 Refresh List', callback_data: 'cmd_myroutines' },
-        { text: '📊 View Today\'s Tasks', callback_data: 'cmd_today' }
-      ]);
-
-      await bot.sendMessage(chatId, message, {
-        parse_mode: 'Markdown',
-        reply_markup: keyboard
-      });
+      // Format and send response
+      const formatted = TelegramView.default.formatMyRoutines(result);
+      await bot.sendMessage(chatId, formatted.text, formatted.options);
 
     } catch (error) {
       console.error('Error in myroutines command:', error);
