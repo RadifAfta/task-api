@@ -398,33 +398,28 @@ Tap any button below or type the command:
     const username = msg.from.username || msg.from.first_name;
 
     try {
-      const client = await pool.connect();
+      // Import user service
+      const userService = await import('../services/userService.js');
 
       // Check if user is currently connected
-      const result = await client.query(`
-        SELECT utc.*, u.name, u.email
-        FROM user_telegram_config utc
-        JOIN users u ON utc.user_id = u.id
-        WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
-      `, [chatId]);
+      const userResult = await userService.default.verifyUserByChatId(chatId);
 
-      if (result.rows.length === 0) {
+      if (!userResult.success) {
         await bot.sendMessage(chatId,
           '❌ *Not Connected*\n\n' +
           `Hello ${username}! You are not currently connected to any LifePath account.\n\n` +
           'Use /login or /register to connect your account.',
           { parse_mode: 'Markdown' }
         );
-        client.release();
         return;
       }
 
-      const userConfig = result.rows[0];
+      const user = userResult.user;
 
       // Confirm logout with user
       const confirmMessage = await bot.sendMessage(chatId,
         `🚪 *Confirm Logout*\n\n` +
-        `Are you sure you want to disconnect **${userConfig.name}** (${userConfig.email}) from this Telegram account?\n\n` +
+        `Are you sure you want to disconnect **${user.name}** (${user.email}) from this Telegram account?\n\n` +
         `⚠️ *What will happen:*\n` +
         `• You will stop receiving task reminders\n` +
         `• You will stop receiving daily summaries\n` +
@@ -446,14 +441,14 @@ Tap any button below or type the command:
       // Store logout confirmation state
       userStates.set(chatId, {
         action: 'awaiting_logout_confirmation',
-        userId: userConfig.user_id,
-        userName: userConfig.name,
-        userEmail: userConfig.email,
+        userId: user.user_id,
+        userName: user.name,
+        userEmail: user.email,
         messageId: confirmMessage.message_id,
         timestamp: Date.now()
       });
 
-      console.log(`🚪 Logout confirmation sent for ${chatId} (${userConfig.email})`);
+      console.log(`🚪 Logout confirmation sent for ${chatId} (${user.email})`);
 
       // Set timeout for logout confirmation (1 minute)
       const logoutTimeout = setTimeout(async () => {
@@ -479,8 +474,6 @@ Tap any button below or type the command:
 
       // Store timeout reference
       userStates.get(chatId).timeoutId = logoutTimeout;
-
-      client.release();
 
     } catch (error) {
       console.error('Error in logout command:', error);
@@ -571,14 +564,13 @@ Use the buttons below for quick access! 👇
 
     // Check if already logged in
     try {
-      const client = await pool.connect();
-      const existing = await client.query(
-        'SELECT user_id FROM user_telegram_config WHERE telegram_chat_id = $1 AND is_verified = true',
-        [chatId]
-      );
-      client.release();
+      // Import user service
+      const userService = await import('../services/userService.js');
 
-      if (existing.rows.length > 0) {
+      // Check if already logged in
+      const loginCheck = await userService.default.checkLoginStatus(chatId);
+
+      if (loginCheck.isLoggedIn) {
         await bot.sendMessage(chatId,
           '✅ *Already Logged In*\n\n' +
           'You are already connected to LifePath.\n' +
@@ -636,26 +628,23 @@ Use the buttons below for quick access! 👇
   const processLogin = async (chatId, email) => {
 
     try {
-      const client = await pool.connect();
+      // Import user service
+      const userService = await import('../services/userService.js');
 
       // Check if user exists
-      const userResult = await client.query(
-        'SELECT id, email, name, password_hash FROM users WHERE email = $1',
-        [email]
-      );
+      const userResult = await userService.default.findUserByEmail(email);
 
-      if (userResult.rows.length === 0) {
+      if (!userResult.success) {
         await bot.sendMessage(chatId,
           '❌ *Email Not Found*\n\n' +
           `No LifePath account found with email: ${email}\n\n` +
           'Please check your email or register at the LifePath app first.',
           { parse_mode: 'Markdown' }
         );
-        client.release();
         return;
       }
 
-      const user = userResult.rows[0];
+      const user = userResult.user;
 
       // Ask for password
       await bot.sendMessage(chatId,
@@ -675,8 +664,6 @@ Use the buttons below for quick access! 👇
         passwordHash: user.password_hash,
         timestamp: Date.now()
       });
-
-      client.release();
 
       // Set timeout
       const timeout = setTimeout(async () => {
@@ -711,45 +698,34 @@ Use the buttons below for quick access! 👇
     const verificationCode = match[1].trim().toUpperCase();
 
     try {
-      const client = await pool.connect();
+      // Import user service
+      const userService = await import('../services/userService.js');
 
       // Find user with this verification code
-      const result = await client.query(`
-        SELECT utc.*, u.email, u.name
-        FROM user_telegram_config utc
-        JOIN users u ON utc.user_id = u.id
-        WHERE utc.verification_code = $1
-        AND utc.is_verified = false
-        AND utc.verification_expires_at > NOW()
-      `, [verificationCode]);
+      const verificationResult = await userService.default.verifyUserWithCode(verificationCode);
 
-      if (result.rows.length === 0) {
+      if (!verificationResult.success) {
         await bot.sendMessage(chatId,
           '❌ *Verification Failed*\n\n' +
           'Invalid or expired verification code.\n' +
           'Please obtain a new code from the LifePath app.',
           { parse_mode: 'Markdown' }
         );
-        client.release();
         return;
       }
 
-      const userConfig = result.rows[0];
+      const userConfig = verificationResult.userConfig;
 
       // Update telegram config with verified status
-      await client.query(`
-        UPDATE user_telegram_config
-        SET telegram_chat_id = $1,
-            telegram_username = $2,
-            is_verified = true,
-            is_active = true,
-            verification_code = NULL,
-            verification_expires_at = NULL,
-            updated_at = CURRENT_TIMESTAMP
-        WHERE user_id = $3
-      `, [chatId, username, userConfig.user_id]);
+      const updateResult = await userService.default.updateUserVerification(userConfig.user_id, chatId, username);
 
-      client.release();
+      if (!updateResult.success) {
+        await bot.sendMessage(chatId,
+          '❌ An error occurred during verification. Please try again.',
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
 
       const successMessage = `
 ✅ *Verification Successful!*
@@ -788,19 +764,12 @@ Let's make your day productive! 💪
     const chatId = msg.chat.id;
 
     try {
-      const client = await pool.connect();
+      // Import user service
+      const userService = await import('../services/userService.js');
 
-      const result = await client.query(`
-        SELECT utc.*, u.name, u.email, rs.*, COALESCE(utc.bot_name, 'Levi') as bot_name
-        FROM user_telegram_config utc
-        JOIN users u ON utc.user_id = u.id
-        LEFT JOIN reminder_settings rs ON utc.user_id = rs.user_id
-        WHERE utc.telegram_chat_id = $1
-      `, [chatId]);
+      const statusResult = await userService.default.getUserStatus(chatId);
 
-      client.release();
-
-      if (result.rows.length === 0) {
+      if (!statusResult.success) {
         await bot.sendMessage(chatId,
           '❌ *Not Connected*\n\n' +
           'Your Telegram account is not linked to LifePath.\n' +
@@ -810,7 +779,7 @@ Let's make your day productive! 💪
         return;
       }
 
-      const config = result.rows[0];
+      const config = statusResult.config;
 
       const statusMessage = `
 ✅ *Connection Status*
@@ -956,21 +925,13 @@ Stay productive! 🚀
     console.log(`📋 Task details in command: "${taskDetails}"`);
 
     try {
-      const client = await pool.connect();
+      // Import user service
+      const userService = await import('../services/userService.js');
 
       // Check if user is verified
-      const result = await client.query(`
-        SELECT utc.user_id, u.name
-        FROM user_telegram_config utc
-        JOIN users u ON utc.user_id = u.id
-        WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
-      `, [chatId]);
+      const userResult = await userService.default.verifyUserByChatId(chatId);
 
-      client.release();
-
-      console.log(`🔍 User verification result:`, result.rows);
-
-      if (result.rows.length === 0) {
+      if (!userResult.success) {
         console.log(`❌ User not verified for chatId: ${chatId}`);
         await bot.sendMessage(chatId,
           '❌ *Not Connected*\n\n' +
@@ -980,7 +941,7 @@ Stay productive! 🚀
         return;
       }
 
-      const user = result.rows[0];
+      const user = userResult.user;
       console.log(`✅ User verified: ${user.name} (${user.user_id})`);
 
       // If task details provided in command, process immediately
@@ -1139,18 +1100,13 @@ Please send your task details in this format:
     const chatId = msg.chat.id;
 
     try {
-      const client = await pool.connect();
+      // Import user service
+      const userService = await import('../services/userService.js');
 
       // Check if user is verified
-      const result = await client.query(`
-        SELECT utc.user_id, u.name, COALESCE(utc.bot_name, 'Levi') as bot_name
-        FROM user_telegram_config utc
-        JOIN users u ON utc.user_id = u.id
-        WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
-      `, [chatId]);
+      const userResult = await userService.default.verifyUserByChatId(chatId);
 
-      if (result.rows.length === 0) {
-        client.release();
+      if (!userResult.success) {
         await bot.sendMessage(chatId,
           '❌ *Not Connected*\n\n' +
           'Please connect your Telegram account first using /verify or /login',
@@ -1159,7 +1115,7 @@ Please send your task details in this format:
         return;
       }
 
-      const user = result.rows[0];
+      const user = userResult.user;
 
       // Define today's date for the query
       const today = new Date();
@@ -1170,7 +1126,6 @@ Please send your task details in this format:
       const todayTasksResult = await taskService.default.getTodayTasks(user.user_id, todayStr);
 
       if (!todayTasksResult.success) {
-        client.release();
         await bot.sendMessage(chatId,
           `❌ Error fetching tasks: ${todayTasksResult.error}`,
           { parse_mode: 'Markdown' }
@@ -1179,8 +1134,6 @@ Please send your task details in this format:
       }
 
       const tasks = todayTasksResult.tasks;
-
-      client.release();
 
       if (tasks.length === 0) {
         await bot.sendMessage(chatId,
@@ -1271,40 +1224,34 @@ ${user.bot_name} presents your daily task overview, My Lord:
     const chatId = msg.chat.id;
 
     try {
-      const client = await pool.connect();
+      // Import user service
+      const userService = await import('../services/userService.js');
 
-      const result = await client.query(`
-        SELECT utc.user_id, u.name
-        FROM user_telegram_config utc
-        JOIN users u ON utc.user_id = u.id
-        WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
-      `, [chatId]);
+      const userResult = await userService.default.verifyUserByChatId(chatId);
 
-      if (result.rows.length === 0) {
-        client.release();
+      if (!userResult.success) {
         await bot.sendMessage(chatId, '❌ Please connect first using /login or /verify', { parse_mode: 'Markdown' });
         return;
       }
 
-      const user = result.rows[0];
+      const user = userResult.user;
 
-      const tasksResult = await client.query(`
-        SELECT id, title, priority, category, time_start, status
-        FROM tasks
-        WHERE user_id = $1
-        ORDER BY created_at DESC
-        LIMIT 20
-      `, [user.user_id]);
+      // Get tasks using task service
+      const taskService = await import('../services/taskService.js');
+      const tasksResult = await taskService.default.getUserTasks(user.user_id, {
+        sort: [{ field: 'created_at', order: 'desc' }],
+        limit: 20
+      });
 
-      client.release();
-
-      if (tasksResult.rows.length === 0) {
-        await bot.sendMessage(chatId, '📋 No tasks found. Use /addtask to create one.', { parse_mode: 'Markdown' });
+      if (!tasksResult.success) {
+        await bot.sendMessage(chatId, '❌ Error fetching tasks. Please try again.');
         return;
       }
 
+      const tasks = tasksResult.tasks;
+
       // Build a compact list with edit/delete buttons
-      for (const task of tasksResult.rows) {
+      for (const task of tasks) {
         const emoji = task.priority === 'high' ? '🔴' : task.priority === 'medium' ? '🟡' : '🟢';
         const timeInfo = task.time_start ? ` ⏰ ${task.time_start}` : '';
         const text = `${emoji} *${task.title}*${timeInfo}\n_${task.category} | ${task.status}_`;
@@ -1519,18 +1466,15 @@ ${task.description ? `_${task.description.substring(0, 80)}${task.description.le
       const user = result.rows[0];
 
       // Get pending tasks count
-      const countResult = await client.query(`
-        SELECT 
-          COUNT(*) FILTER (WHERE status = 'pending') as pending,
-          COUNT(*) FILTER (WHERE status = 'in_progress') as in_progress,
-          COUNT(*) FILTER (WHERE status = 'done' AND DATE(updated_at) = CURRENT_DATE) as done_today
-        FROM tasks
-        WHERE user_id = $1
-      `, [user.user_id]);
+      const taskService = await import('./taskService.js');
+      const countsResult = await taskService.default.getTaskCounts(user.user_id);
 
-      client.release();
+      if (!countsResult.success) {
+        await bot.sendMessage(chatId, '❌ Error fetching task counts. Please try again.');
+        return;
+      }
 
-      const counts = countResult.rows[0];
+      const counts = countsResult.counts;
 
       const message = `
 ⚡ *Quick Actions*
@@ -1577,6 +1521,7 @@ ${task.description ? `_${task.description.substring(0, 80)}${task.description.le
     const taskId = match[1]?.trim();
 
     try {
+      const taskService = await import('./taskService.js');
       const client = await pool.connect();
 
       // Check if user is verified
@@ -1597,19 +1542,23 @@ ${task.description ? `_${task.description.substring(0, 80)}${task.description.le
 
       // If no task ID, show incomplete tasks
       if (!taskId) {
-        const tasksResult = await client.query(`
-          SELECT id, title, priority, category, time_start, status
-          FROM tasks
-          WHERE user_id = $1 AND status != 'done'
-          ORDER BY 
-            CASE priority WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 END,
-            time_start ASC NULLS LAST
-          LIMIT 10
-        `, [user.user_id]);
+        const tasksResult = await taskService.default.getUserTasks(user.user_id, {
+          status: { $ne: 'done' },
+          sort: [
+            { field: 'priority', order: 'asc', customOrder: ['high', 'medium', 'low'] },
+            { field: 'time_start', order: 'asc' }
+          ],
+          limit: 10
+        });
 
-        client.release();
+        if (!tasksResult.success) {
+          await bot.sendMessage(chatId, '❌ Error fetching tasks. Please try again.');
+          return;
+        }
 
-        if (tasksResult.rows.length === 0) {
+        const tasks = tasksResult.tasks;
+
+        if (tasks.length === 0) {
           await bot.sendMessage(chatId,
             '✅ *All Done!*\n\nYou have no pending tasks.',
             { parse_mode: 'Markdown' }
@@ -1619,7 +1568,7 @@ ${task.description ? `_${task.description.substring(0, 80)}${task.description.le
 
         let message = '✅ *Mark as Complete*\n\nSelect a task:\n\n';
 
-        const buttons = tasksResult.rows.map(task => {
+        const buttons = tasks.map(task => {
           const emoji = task.priority === 'high' ? '🔴' : task.priority === 'medium' ? '🟡' : '🟢';
           const timeInfo = task.time_start ? ` ${task.time_start}` : '';
           return [{
@@ -1636,21 +1585,14 @@ ${task.description ? `_${task.description.substring(0, 80)}${task.description.le
       }
 
       // Mark specific task as complete
-      const updateResult = await client.query(`
-        UPDATE tasks
-        SET status = 'done', updated_at = CURRENT_TIMESTAMP
-        WHERE id = $1 AND user_id = $2
-        RETURNING *
-      `, [taskId, user.user_id]);
+      const completeResult = await taskService.default.completeTask(taskId, user.user_id);
 
-      client.release();
-
-      if (updateResult.rows.length === 0) {
+      if (!completeResult.success) {
         await bot.sendMessage(chatId, '❌ Task not found');
         return;
       }
 
-      const task = updateResult.rows[0];
+      const task = completeResult.task;
       await bot.sendMessage(chatId,
         `✅ *Task Completed!*\n\n` +
         `${user.bot_name} celebrates your accomplishment, My Lord!\n\n` +
@@ -1698,24 +1640,23 @@ ${task.description ? `_${task.description.substring(0, 80)}${task.description.le
 
       // If no task ID provided, show recent tasks
       if (!taskId) {
-        const tasksResult = await client.query(`
-          SELECT id, title, status, priority, category, time_start, time_end
-          FROM tasks
-          WHERE user_id = $1
-          AND status != 'done'
-          ORDER BY 
-            CASE priority
-              WHEN 'high' THEN 1
-              WHEN 'medium' THEN 2
-              WHEN 'low' THEN 3
-            END,
-            created_at DESC
-          LIMIT 10
-        `, [user.user_id]);
+        const tasksResult = await taskService.default.getUserTasks(user.user_id, {
+          status: { $ne: 'done' },
+          sort: [
+            { field: 'priority', order: 'asc', customOrder: ['high', 'medium', 'low'] },
+            { field: 'created_at', order: 'desc' }
+          ],
+          limit: 10
+        });
 
-        client.release();
+        if (!tasksResult.success) {
+          await bot.sendMessage(chatId, '❌ Error fetching tasks. Please try again.');
+          return;
+        }
 
-        if (tasksResult.rows.length === 0) {
+        const tasks = tasksResult.tasks;
+
+        if (tasks.length === 0) {
           await bot.sendMessage(chatId,
             '✏️ *Edit Task*\n\n' +
             '❌ You don\'t have any active tasks to edit.\n\n' +
@@ -1734,7 +1675,7 @@ Select a task to edit, or use:
 *Recent Active Tasks:*
 `;
 
-        tasksResult.rows.forEach((task, idx) => {
+        tasks.forEach((task, idx) => {
           const emoji = task.priority === 'high' ? '🔴' : task.priority === 'medium' ? '🟡' : '🟢';
           const categoryEmoji = task.category === 'work' ? '💼' : task.category === 'learn' ? '📚' : '🧘';
           const timeInfo = task.time_start ? ` ⏰ ${task.time_start}` : '';
@@ -1847,17 +1788,19 @@ Send your updates now, or /cancel to abort.
 
       // If no task ID provided, show recent tasks
       if (!taskId) {
-        const tasksResult = await client.query(`
-          SELECT id, title, status, priority, category, time_start
-          FROM tasks
-          WHERE user_id = $1
-          ORDER BY created_at DESC
-          LIMIT 10
-        `, [user.user_id]);
+        const tasksResult = await taskService.default.getUserTasks(user.user_id, {
+          sort: [{ field: 'created_at', order: 'desc' }],
+          limit: 10
+        });
 
-        client.release();
+        if (!tasksResult.success) {
+          await bot.sendMessage(chatId, '❌ Error fetching tasks. Please try again.');
+          return;
+        }
 
-        if (tasksResult.rows.length === 0) {
+        const tasks = tasksResult.tasks;
+
+        if (tasks.length === 0) {
           await bot.sendMessage(chatId,
             '🗑️ *Delete Task*\n\n' +
             '❌ You don\'t have any tasks to delete.\n\n' +
@@ -1876,7 +1819,7 @@ Select a task to delete, or use:
 *Recent Tasks:*
 `;
 
-        tasksResult.rows.forEach((task, idx) => {
+        tasks.forEach((task, idx) => {
           const emoji = task.priority === 'high' ? '🔴' : task.priority === 'medium' ? '🟡' : '🟢';
           const categoryEmoji = task.category === 'work' ? '💼' : task.category === 'learn' ? '📚' : '🧘';
           const statusEmoji = task.status === 'done' ? '✅' : task.status === 'in_progress' ? '🔄' : '📋';
@@ -1910,12 +1853,19 @@ Select a task to delete, or use:
       const task = taskResult.task;
 
       // Delete the task
-      await client.query(`
-        DELETE FROM tasks
-        WHERE id = $1 AND user_id = $2
-      `, [taskId, user.user_id]);
+      const deleteResult = await taskService.default.deleteTask(taskId, user.user_id);
 
-      client.release();
+      if (!deleteResult.success) {
+        await bot.sendMessage(chatId,
+          '❌ *Task Not Found*\n\n' +
+          `${user.bot_name} searched diligently, My Lord, but this task doesn\'t exist or doesn\'t belong to you.\n\n` +
+          'Use /deletetask to see your tasks.',
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+
+      task = deleteResult.task;
 
       const successMessage = `
 ✅ *Task Deleted Successfully!*
@@ -1957,15 +1907,10 @@ Use /today to see your remaining tasks.
       const client = await pool.connect();
 
       // Check if user is verified
-      const result = await client.query(`
-        SELECT utc.user_id, u.name, COALESCE(utc.bot_name, 'Levi') as bot_name
-        FROM user_telegram_config utc
-        JOIN users u ON utc.user_id = u.id
-        WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
-      `, [chatId]);
+      const userService = await import('./userService.js');
+      const userResult = await userService.default.verifyUserByChatId(chatId);
 
-      if (result.rows.length === 0) {
-        client.release();
+      if (!userResult.success) {
         await bot.sendMessage(chatId,
           '❌ *Not Connected*\n\n' +
           'Please connect your Telegram account first using /verify or /login',
@@ -1974,26 +1919,18 @@ Use /today to see your remaining tasks.
         return;
       }
 
-      const user = result.rows[0];
+      const user = userResult.user;
 
-      // Get user's routine templates with more detailed info
-      const routinesResult = await client.query(`
-        SELECT rt.*,
-               COUNT(rtt.id) as tasks_count,
-               CASE
-                 WHEN COUNT(rtt.id) > 0 THEN true
-                 ELSE false
-               END as has_tasks
-        FROM routine_templates rt
-        LEFT JOIN routine_template_tasks rtt ON rt.id = rtt.routine_template_id AND rtt.is_active = true
-        WHERE rt.user_id = $1
-        GROUP BY rt.id
-        ORDER BY rt.is_active DESC, rt.created_at DESC
-      `, [user.user_id]);
+      // Get user's routine templates using routine service
+      const routineService = await import('./routineService.js');
+      const routinesResult = await routineService.default.getRoutineTemplatesByUser(user.user_id);
 
-      client.release();
+      if (!routinesResult.success) {
+        await bot.sendMessage(chatId, '❌ Error fetching routines. Please try again.');
+        return;
+      }
 
-      const routines = routinesResult.rows;
+      const routines = routinesResult.routines;
 
       if (routines.length === 0) {
         await bot.sendMessage(chatId,
@@ -2227,8 +2164,36 @@ ${user.bot_name} presents your routine options for generation, My Lord:
       // Generate tasks from specific routine
       const routineService = await import('./routineService.js');
 
+      // Find routine by name or ID
+      let routineId;
+      const routinesResult = await client.query(`
+        SELECT rt.id, rt.name
+        FROM routine_templates rt
+        WHERE rt.user_id = $1 AND rt.is_active = true
+        ORDER BY rt.created_at DESC
+      `, [user.user_id]);
+
+      // First try to match by ID
+      let foundRoutine = routinesResult.rows.find(r => r.id === input);
+      if (foundRoutine) {
+        routineId = foundRoutine.id;
+      } else {
+        // Try to match by name (case insensitive)
+        foundRoutine = routinesResult.rows.find(r => r.name.toLowerCase() === input.toLowerCase());
+        if (foundRoutine) {
+          routineId = foundRoutine.id;
+        } else {
+          client.release();
+          await bot.sendMessage(chatId,
+            `❌ *Routine Not Found*\n\n'${input}' doesn't match any of your active routines.\n\nUse /generateroutine without parameters to see available routines.`,
+            { parse_mode: 'Markdown' }
+          );
+          return;
+        }
+      }
+
       console.log(`🔄 Generating routine ${routineId} for user ${user.user_id}`);
-      const generationResult = await routineService.generateDailyTasksFromTemplate(user.user_id, routineId);
+      const generationResult = await routineService.default.generateDailyTasksFromTemplate(user.user_id, routineId);
 
       client.release();
 
@@ -2301,16 +2266,11 @@ ${routine.description ? `📄 ${routine.description}\n` : ''}
       const client = await pool.connect();
 
       // Check if user is verified
-      const result = await client.query(`
-        SELECT utc.user_id, u.name
-        FROM user_telegram_config utc
-        JOIN users u ON utc.user_id = u.id
-        WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
-      `, [chatId]);
+      const userService = await import('./userService.js');
+      const userResult = await userService.default.verifyUserByChatId(chatId);
 
-      client.release();
-
-      if (result.rows.length === 0) {
+      if (!userResult.success) {
+        client.release();
         await bot.sendMessage(chatId,
           '❌ *Not Connected*\n\n' +
           'Please connect your Telegram account first using /verify or /login',
@@ -2319,7 +2279,7 @@ ${routine.description ? `📄 ${routine.description}\n` : ''}
         return;
       }
 
-      const user = result.rows[0];
+      const user = userResult.user;
 
       // Set state for routine creation
       userStates.set(chatId, {
@@ -2363,16 +2323,11 @@ Send your routine info now, or /cancel to abort.
     try {
       const client = await pool.connect();
 
-      const result = await client.query(`
-        SELECT utc.user_id, u.name, COALESCE(utc.bot_name, 'Levi') as bot_name
-        FROM user_telegram_config utc
-        JOIN users u ON utc.user_id = u.id
-        WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
-      `, [chatId]);
+      const userService = await import('./userService.js');
+      const userResult = await userService.default.verifyUserByChatId(chatId);
 
-      client.release();
-
-      if (result.rows.length === 0) {
+      if (!userResult.success) {
+        client.release();
         await bot.sendMessage(chatId,
           '❌ Please connect first using /login or /verify',
           { parse_mode: 'Markdown' }
@@ -2380,7 +2335,7 @@ Send your routine info now, or /cancel to abort.
         return;
       }
 
-      const user = result.rows[0];
+      const user = userResult.user;
 
       // Set state for interactive routine creation
       userStates.set(chatId, {
@@ -2421,14 +2376,10 @@ Send your routine info now, or /cancel to abort.
       const client = await pool.connect();
 
       // Check if user is verified
-      const result = await client.query(`
-        SELECT utc.user_id, u.name
-        FROM user_telegram_config utc
-        JOIN users u ON utc.user_id = u.id
-        WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
-      `, [chatId]);
+      const userService = await import('./userService.js');
+      const userResult = await userService.default.verifyUserByChatId(chatId);
 
-      if (result.rows.length === 0) {
+      if (!userResult.success) {
         client.release();
         await bot.sendMessage(chatId,
           '❌ *Not Connected*\n\n' +
@@ -2438,7 +2389,7 @@ Send your routine info now, or /cancel to abort.
         return;
       }
 
-      const user = result.rows[0];
+      const user = userResult.user;
 
       // Verify routine exists and belongs to user
       const routineResult = await client.query(`
@@ -2513,14 +2464,10 @@ Send your task info now, or /cancel to abort.
     try {
       const client = await pool.connect();
 
-      const result = await client.query(`
-        SELECT utc.user_id, u.name
-        FROM user_telegram_config utc
-        JOIN users u ON utc.user_id = u.id
-        WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
-      `, [chatId]);
+      const userService = await import('./userService.js');
+      const userResult = await userService.default.verifyUserByChatId(chatId);
 
-      if (result.rows.length === 0) {
+      if (!userResult.success) {
         client.release();
         await bot.sendMessage(chatId,
           '❌ Please connect first using /login or /verify',
@@ -2529,7 +2476,7 @@ Send your task info now, or /cancel to abort.
         return;
       }
 
-      const user = result.rows[0];
+      const user = userResult.user;
 
       // If no routine ID provided, show list of routines
       if (!routineId) {
@@ -4972,7 +4919,7 @@ const handleGenerateAllRoutines = async (chatId) => {
         const routineService = await import('../services/routineService.js');
 
         // Generate tasks
-        const result = await routineService.generateDailyTasksFromTemplate(user.user_id, routine.id);
+        const result = await routineService.default.generateDailyTasksFromTemplate(user.user_id, routine.id);
 
         if (result.success) {
           totalTasksGenerated += result.tasksGenerated || 0;
@@ -5241,7 +5188,7 @@ const handleGenerateRoutineNow = async (chatId, messageId, routineId) => {
 
     // Import routine service and generate tasks
     const routineService = await import('../services/routineService.js');
-    const result = await routineService.generateDailyTasksFromTemplate(user.user_id, routine.id);
+    const result = await routineService.default.generateDailyTasksFromTemplate(user.user_id, routine.id);
 
     if (!result.success) {
       await bot.editMessageText(

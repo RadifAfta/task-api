@@ -355,10 +355,262 @@ export const deleteGeneratedRoutine = async (userId, routineTemplateId, targetDa
   }
 };
 
+// CRUD Operations for Routine Templates
+
+/**
+ * Get routine templates by user
+ * @param {string} userId - User ID
+ * @param {Object} options - Query options
+ * @param {boolean|null} options.isActive - Filter by active status
+ * @param {number} options.limit - Limit results
+ * @returns {Object} Routine templates result
+ */
+const getRoutineTemplatesByUser = async (userId, options = {}) => {
+  try {
+    const routines = await routineModel.getRoutineTemplatesByUser(userId, options);
+    return {
+      success: true,
+      routines: routines
+    };
+  } catch (error) {
+    console.error('Error getting routine templates:', error);
+    return {
+      success: false,
+      error: error.message,
+      routines: []
+    };
+  }
+};
+
+/**
+ * Get routine template by ID
+ * @param {string} routineId - Routine template ID
+ * @param {string} userId - User ID
+ * @returns {Object} Routine template result
+ */
+const getRoutineTemplateById = async (routineId, userId) => {
+  try {
+    const routine = await routineModel.getRoutineTemplateById(routineId, userId);
+
+    if (!routine) {
+      return {
+        success: false,
+        error: 'Routine template not found',
+        routine: null
+      };
+    }
+
+    return {
+      success: true,
+      routine: routine
+    };
+  } catch (error) {
+    console.error('Error getting routine template by ID:', error);
+    return {
+      success: false,
+      error: error.message,
+      routine: null
+    };
+  }
+};
+
+/**
+ * Create routine template
+ * @param {string} userId - User ID
+ * @param {Object} routineData - Routine data
+ * @param {string} routineData.name - Routine name
+ * @param {string} routineData.description - Routine description
+ * @param {boolean} routineData.isActive - Active status
+ * @returns {Object} Creation result
+ */
+const createRoutineTemplate = async (userId, routineData) => {
+  try {
+    const routine = await routineModel.createRoutineTemplate(userId, routineData);
+
+    return {
+      success: true,
+      routine: routine
+    };
+  } catch (error) {
+    console.error('Error creating routine template:', error);
+    return {
+      success: false,
+      error: error.message,
+      routine: null
+    };
+  }
+};
+
+/**
+ * Update routine template
+ * @param {string} routineId - Routine template ID
+ * @param {string} userId - User ID
+ * @param {Object} updateData - Update data
+ * @returns {Object} Update result
+ */
+const updateRoutineTemplate = async (routineId, userId, updateData) => {
+  try {
+    const routine = await routineModel.updateRoutineTemplate(routineId, userId, updateData);
+
+    if (!routine) {
+      return {
+        success: false,
+        error: 'Routine template not found or access denied',
+        routine: null
+      };
+    }
+
+    return {
+      success: true,
+      routine: routine
+    };
+  } catch (error) {
+    console.error('Error updating routine template:', error);
+    return {
+      success: false,
+      error: error.message,
+      routine: null
+    };
+  }
+};
+
+/**
+ * Delete routine template
+ * @param {string} routineId - Routine template ID
+ * @param {string} userId - User ID
+ * @returns {Object} Deletion result
+ */
+const deleteRoutineTemplate = async (routineId, userId) => {
+  try {
+    const deleted = await routineModel.deleteRoutineTemplate(routineId, userId);
+
+    if (!deleted) {
+      return {
+        success: false,
+        error: 'Routine template not found or access denied'
+      };
+    }
+
+    return {
+      success: true,
+      routine: deleted
+    };
+  } catch (error) {
+    console.error('Error deleting routine template:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+};
+
+/**
+ * Activate routine template
+ * @param {string} routineId - Routine template ID
+ * @param {string} userId - User ID
+ * @returns {Object} Activation result
+ */
+const activateRoutineTemplate = async (routineId, userId) => {
+  return updateRoutineTemplate(routineId, userId, { is_active: true });
+};
+
+/**
+ * Deactivate routine template
+ * @param {string} routineId - Routine template ID
+ * @param {string} userId - User ID
+ * @returns {Object} Deactivation result
+ */
+const deactivateRoutineTemplate = async (routineId, userId) => {
+  return updateRoutineTemplate(routineId, userId, { is_active: false });
+};
+
+/**
+ * Get active routines for generation
+ * @param {string} userId - User ID
+ * @returns {Object} Active routines result
+ */
+const getActiveRoutinesForGeneration = async (userId) => {
+  try {
+    const routines = await routineModel.getActiveRoutineTemplates(userId);
+
+    return {
+      success: true,
+      routines: routines
+    };
+  } catch (error) {
+    console.error('Error getting active routines for generation:', error);
+    return {
+      success: false,
+      error: error.message,
+      routines: []
+    };
+  }
+};
+
+/**
+ * Get routine tasks
+ * @param {string} routineId - Routine template ID
+ * @param {string} userId - User ID
+ * @returns {Object} Routine tasks result
+ */
+const getRoutineTasks = async (routineId, userId) => {
+  try {
+    const tasks = await routineModel.getRoutineTemplateTasks(routineId, userId);
+
+    return {
+      success: true,
+      tasks: tasks
+    };
+  } catch (error) {
+    console.error('Error getting routine tasks:', error);
+    return {
+      success: false,
+      error: error.message,
+      tasks: []
+    };
+  }
+};
+
+/**
+ * Create routine task
+ * @param {string} routineId - Routine template ID
+ * @param {Object} taskData - Task data
+ * @returns {Object} Creation result
+ */
+const createRoutineTask = async (routineId, taskData) => {
+  try {
+    const task = await routineModel.createRoutineTemplateTask(routineId, taskData);
+
+    return {
+      success: true,
+      task: task
+    };
+  } catch (error) {
+    console.error('Error creating routine task:', error);
+    return {
+      success: false,
+      error: error.message,
+      task: null
+    };
+  }
+};
+
 export default {
   generateDailyTasksFromTemplate,
   generateAllDailyRoutines,
   getRoutineGenerationStatus,
   previewRoutineGeneration,
-  deleteGeneratedRoutine
+  deleteGeneratedRoutine,
+
+  // CRUD Operations for Routine Templates
+  getRoutineTemplatesByUser,
+  getRoutineTemplateById,
+  createRoutineTemplate,
+  updateRoutineTemplate,
+  deleteRoutineTemplate,
+  activateRoutineTemplate,
+  deactivateRoutineTemplate,
+  getActiveRoutinesForGeneration,
+  getRoutineTasks,
+  createRoutineTask
 };

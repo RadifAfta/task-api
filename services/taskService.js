@@ -108,12 +108,15 @@ class TaskService {
         error: error.message
       };
     }
+  }
+
   /**
    * Get user tasks
    * @param {string} userId - User ID
    * @param {Object} filters - Optional filters
    * @returns {Array} User tasks
    */
+  static async getUserTasks(userId, filters = {}) {
     try {
       const client = await pool.connect();
 
@@ -410,10 +413,39 @@ class TaskService {
   }
 
   /**
-   * Parse task input string
-   * @param {string} input - Input string in format "Title | Description | Priority | Category | TimeStart | TimeEnd"
-   * @returns {Object} Parsed task data
+   * Get task counts for a user
+   * @param {string} userId - User ID
+   * @returns {Object} Task counts
    */
+  static async getTaskCounts(userId) {
+    try {
+      const client = await pool.connect();
+
+      const result = await client.query(`
+        SELECT
+          COUNT(*) FILTER (WHERE status = 'pending') as pending,
+          COUNT(*) FILTER (WHERE status = 'in_progress') as in_progress,
+          COUNT(*) FILTER (WHERE status = 'done' AND DATE(updated_at) = CURRENT_DATE) as done_today
+        FROM tasks
+        WHERE user_id = $1
+      `, [userId]);
+
+      client.release();
+
+      return {
+        success: true,
+        counts: result.rows[0]
+      };
+
+    } catch (error) {
+      console.error('Error getting task counts:', error);
+      return {
+        success: false,
+        error: error.message,
+        counts: { pending: 0, in_progress: 0, done_today: 0 }
+      };
+    }
+  }
   static parseTaskInput(input) {
     try {
       const parts = input.split('|').map(p => p.trim());
