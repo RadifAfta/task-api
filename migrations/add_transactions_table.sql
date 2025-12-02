@@ -3,13 +3,17 @@
 -- Required columns: user_id, amount, type, category, description, transaction_date
 
 -- Create transactions table
+
+--Enum type for transaction type
+CREATE TYPE transaction_type AS ENUM ('income', 'expense');
+
 CREATE TABLE transactions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   
   -- Required columns
-  type VARCHAR(20) NOT NULL CHECK (type IN ('income', 'expense')),
-  amount DECIMAL(15,2) NOT NULL CHECK (amount > 0),
+  type transaction_type NOT NULL,
+  amount BIGINT NOT NULL CHECK (amount > 0),
   
   category VARCHAR(50) NOT NULL,
   description TEXT NOT NULL,
