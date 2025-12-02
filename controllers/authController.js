@@ -11,7 +11,9 @@ const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN;
 
 // REGISTER
 export const register = async (req, res) => {
+  console.log('Register request body:', req.body); // Debug log
   const { name, email, password, role } = req.body;
+  console.log('Destructured values:', { name, email, password: password ? '***' : password, role }); // Debug log
 
   try {
     // Cek apakah email sudah terdaftar
@@ -29,7 +31,12 @@ export const register = async (req, res) => {
       role && validRoles.includes(role.toLowerCase()) ? role.toLowerCase() : undefined;
 
     // Simpan user baru ke database (kalau role tidak dikirim, DB akan isi default = 'user')
-    const newUser = await createUser(name, email, hashedPassword, userRole);
+    const newUser = await createUser({
+      name,
+      email,
+      passwordHash: hashedPassword,
+      role: userRole
+    });
 
     res.status(201).json({
       message: "✅ User registered successfully",
