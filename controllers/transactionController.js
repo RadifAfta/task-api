@@ -8,7 +8,8 @@ export const createTransactionController = async (req, res) => {
     try {
         const userId = req.user.id; // Ambil userId dari token
         const { amount, type, category, description, date } = req.body;
-        const newTransaction = await createTransaction(userId, amount, type, category, description, date);
+        const transactionDate = date || new Date().toISOString().split('T')[0]; // Default ke hari ini jika tidak diisi
+        const newTransaction = await createTransaction(userId, amount, type, category, description, transactionDate);
         res.status(201).json({
             message: "Transaksi berhasil dibuat",
             data: newTransaction,
