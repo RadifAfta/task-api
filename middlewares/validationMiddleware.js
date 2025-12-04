@@ -444,7 +444,7 @@ export const validateGenerateRoutine = [
         const today = new Date();
         const maxFutureDate = new Date();
         maxFutureDate.setDate(today.getDate() + 30); // Allow generation up to 30 days in future
-        
+
         if (inputDate > maxFutureDate) {
           throw new Error('Cannot generate routines more than 30 days in the future');
         }
@@ -467,14 +467,53 @@ export const validateDeleteGeneratedRoutine = [
         const today = new Date();
         const minPastDate = new Date();
         minPastDate.setDate(today.getDate() - 90); // Allow deletion up to 90 days in past
-        
+
         if (inputDate < minPastDate) {
           throw new Error('Cannot delete routines older than 90 days');
         }
-        
+
         if (inputDate > today) {
           throw new Error('Cannot delete future routine generations');
         }
+      }
+      return true;
+    }),
+  handleValidationErrors
+];
+
+//Validation rules Transaction
+
+export const validateCreateTransaction = [
+  body('type')
+    .trim()
+    .notEmpty()
+    .withMessage('Type is required')
+    .isIn(['income', 'expense'])
+    .withMessage('Type must be one of: income, expense'),
+  body('amount')
+    .notEmpty()
+    .withMessage('Amount is required')
+    .isInt({ min: 1 })
+    .withMessage('Amount must be a positive integer')
+    .toInt(),
+  body('category')
+    .trim()
+    .notEmpty()
+    .withMessage('Category is required')
+    .isLength({ min: 1, max: 50 })
+    .withMessage('Category must be between 1-50 characters'),
+  body('description')
+    .trim()
+    .optional()
+    .isLength({ max: 1000 })
+    .withMessage('Description must not exceed 1000 characters'),
+  body('transaction_date')
+    .optional()
+    .isISO8601()
+    .withMessage('Transaction date must be a valid date in ISO 8601 format (YYYY-MM-DD)')
+    .custom((value) => {
+      if (value && new Date(value) > new Date()) {
+        throw new Error('Transaction date cannot be in the future');
       }
       return true;
     }),

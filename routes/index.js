@@ -5,6 +5,7 @@ import AdminRoute from './adminRoute.js';
 import routineRoute from './routineRoute.js';
 import reminderRoute from './reminderRoute.js';
 import telegramRoute from './telegramRoute.js';
+import transactionRoute from './transactionRoute.js';
 
 const router = express.Router();
 
@@ -25,5 +26,8 @@ router.use('/telegram', telegramRoute);
 
 // Reminder routes - /api/reminders/*
 router.use('/reminders', reminderRoute);
+
+// Transaction routes - /api/transactions/*
+router.use('/transactions', transactionRoute);
 
 export default router;
