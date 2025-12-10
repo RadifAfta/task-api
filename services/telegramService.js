@@ -523,6 +523,13 @@ Select a command below or type it manually:
 • \`/generateroutine\` - Generate daily routine ✨
 • \`/addroutine\` - Create new routine template
 
+*Transactions:*
+• \`/income <amount>\` - Quick income entry 📈
+• \`/expense <amount>\` - Quick expense entry 📉
+• \`/transactions\` - View all transactions 💰
+• \`/transactions_today\` - View today's transactions 📅
+• \`/transaction_summary\` - Financial summary 📊
+
 *Information:*
 • \`/status\` - Check connection status
 • \`/help\` - Get help & documentation
@@ -550,6 +557,10 @@ Use the buttons below for quick access! 👇
         [
           { text: '🏗️ Create Routine', callback_data: 'cmd_addroutine' },
           { text: '📊 Check Status', callback_data: 'cmd_status' }
+        ],
+        [
+          { text: '💰 Transactions', callback_data: 'cmd_transactions' },
+          { text: '📅 Today\'s Tx', callback_data: 'cmd_transactions_today' }
         ],
         [
           { text: '🚪 Logout', callback_data: 'cmd_logout' },
@@ -3299,6 +3310,21 @@ Send your task info now, or /cancel to abort.
             ...fakeMsg,
             date: Math.floor(Date.now() / 1000),
             text: '/transactions'
+          }
+        });
+      } else if (data === 'cmd_transactions_today') {
+        // Trigger transactions_today command
+        const fakeMsg = {
+          chat: { id: chatId },
+          from: callbackQuery.from,
+          message_id: Date.now()
+        };
+        bot.processUpdate({
+          update_id: Date.now(),
+          message: {
+            ...fakeMsg,
+            date: Math.floor(Date.now() / 1000),
+            text: '/transactions_today'
           }
         });
       } else if (data.startsWith('transactions_page_')) {
