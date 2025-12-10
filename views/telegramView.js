@@ -412,7 +412,7 @@ Manage your settings in the LifePath app! 📱
     }
 
     let message = `💰 *${user.bot_name || 'Assistant'} Presents Your Financial Records*\n\n`;
-    message += `*Page ${page} of ${pagination.totalPages}* (${pagination.total} total transactions)\n\n`;
+    message += `*Page ${page} of ${pagination.totalPages}* (${pagination.totalItems} total transactions)\n\n`;
 
     transactions.forEach((transaction, index) => {
       const emoji = transaction.type === 'income' ? '📈' : '📉';
@@ -442,6 +442,98 @@ Manage your settings in the LifePath app! 📱
           callback_data: `transactions_page_${page + 1}`
         });
       }
+      keyboard.push(paginationRow);
+    }
+
+    // Add action buttons
+    keyboard.push([
+      { text: '📈 Add Income', callback_data: 'cmd_income' },
+      { text: '📉 Add Expense', callback_data: 'cmd_expense' }
+    ]);
+
+    return {
+      text: message,
+      options: {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: keyboard
+        }
+      }
+    };
+  }
+
+  /**
+   * Format today's transactions response
+   */
+  static formatTransactionsToday(result, page = 1, limit = 10) {
+    if (!result.success) {
+      return {
+        text: `❌ *Error*\n\n${result.error || 'Failed to fetch today\'s transactions'}`,
+        options: { parse_mode: 'Markdown' }
+      };
+    }
+
+    const { user, transactions, pagination } = result.data;
+
+    if (transactions.length === 0) {
+      return {
+        text: `📅 *${user.bot_name || 'Assistant'} Presents Today's Financial Records*\n\n${user.bot_name || 'Assistant'} reports that you have no transaction records for today.\n\nStart tracking your finances with /addtransaction or use quick commands!`,
+        options: {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: '📈 Add Income', callback_data: 'cmd_income' },
+                { text: '📉 Add Expense', callback_data: 'cmd_expense' }
+              ],
+              [
+                { text: '➕ Full Entry', callback_data: 'cmd_addtransaction' }
+              ]
+            ]
+          }
+        }
+      };
+    }
+
+    let message = `📅 *${user.bot_name || 'Assistant'} Presents Today's Financial Records*\n\n`;
+    message += `*Page ${page} of ${pagination.totalPages}* (${pagination.totalItems} transactions today)\n\n`;
+
+    transactions.forEach((transaction, index) => {
+      const emoji = transaction.type === 'income' ? '📈' : '📉';
+      const amount = new Intl.NumberFormat('id-ID').format(transaction.amount);
+      const date = new Date(transaction.transaction_date).toLocaleDateString('id-ID');
+
+      message += `${emoji} *${transaction.category}*\n`;
+      message += `💰 Rp ${amount}\n`;
+      message += `📄 ${transaction.description}\n`;
+      message += `📅 ${date}\n\n`;
+    });
+
+    const keyboard = [];
+
+    // Add pagination buttons if needed
+    if (pagination.totalPages > 1) {
+      const paginationRow = [];
+
+      if (pagination.hasPrevPage) {
+        paginationRow.push({
+          text: '⬅️ Previous',
+          callback_data: `transactions_today_page_${page - 1}`
+        });
+      }
+
+      paginationRow.push({
+        text: `${page}/${pagination.totalPages}`,
+        callback_data: 'noop'
+      });
+
+      if (pagination.hasNextPage) {
+        paginationRow.push({
+          text: 'Next ➡️',
+          callback_data: `transactions_today_page_${page + 1}`
+        });
+      }
+
       keyboard.push(paginationRow);
     }
 

@@ -90,6 +90,7 @@ const setupBotCommands = async () => {
       { command: 'complete', description: '✅ Mark task as done' },
       { command: 'myroutines', description: '📋 View my routines' },
       { command: 'transactions', description: '💰 View my transactions' },
+      { command: 'transactions_today', description: '📅 View today\'s transactions' },
       { command: 'transaction_summary', description: '📊 Financial summary' },
       { command: 'income', description: '📈 Quick income entry (/income amount)' },
       { command: 'expense', description: '📉 Quick expense entry (/expense amount)' },
@@ -1952,6 +1953,54 @@ Use /today to see your remaining tasks.
     }
   });
 
+  // /transactions_today command - View today's transactions
+  bot.onText(/\/transactions_today/, async (msg) => {
+    const chatId = msg.chat.id;
+    console.log(`📅 /transactions_today command received from ${msg.from.username || msg.from.first_name} (${chatId})`);
+
+    try {
+      // Check if user is verified using UserService
+      const verificationResult = await UserService.verifyUserByChatId(chatId);
+
+      if (!verificationResult.success) {
+        await bot.sendMessage(chatId,
+          '❌ *Not Connected*\n\n' +
+          'Please connect your Telegram account first using /verify or /login',
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+
+      const user = verificationResult.user;
+
+      // Get today's date for filtering
+      const today = new Date();
+      const todayStr = today.toISOString().split('T')[0]; // Format: YYYY-MM-DD
+
+      // Get transactions for today only
+      const resultTransactions = await getTransactionsService(user.user_id, {
+        dateFrom: todayStr,
+        dateTo: todayStr
+      }, 1, 10);
+
+      // Use TelegramView to format the response with today's context
+      const response = TelegramView.formatTransactionsToday({
+        success: true,
+        data: {
+          user: user,
+          transactions: resultTransactions.transactions,
+          pagination: resultTransactions.pagination
+        }
+      }, 1, 10);
+
+      await bot.sendMessage(chatId, response.text, response.options);
+
+    } catch (error) {
+      console.error('Error in transactions_today command:', error);
+      await bot.sendMessage(chatId, '❌ Error fetching today\'s transactions. Please try again.');
+    }
+  });
+
   // /transaction_summary command - Get financial summary
   bot.onText(/\/transaction_summary/, async (msg) => {
     const chatId = msg.chat.id;
@@ -3256,6 +3305,10 @@ Send your task info now, or /cancel to abort.
         // Handle pagination for transactions
         const page = parseInt(data.replace('transactions_page_', ''));
         await handleTransactionsPage(chatId, messageId, page);
+      } else if (data.startsWith('transactions_today_page_')) {
+        // Handle pagination for today's transactions
+        const page = parseInt(data.replace('transactions_today_page_', ''));
+        await handleTransactionsTodayPage(chatId, messageId, page);
       } else if (data === 'cmd_income') {
         const response = TelegramView.formatQuickTransactionHelp('income', 'income');
         await bot.sendMessage(chatId, response.text, response.options);
@@ -5847,6 +5900,57 @@ const handleTransactionsPage = async (chatId, messageId, page) => {
 
   } catch (error) {
     console.error('Error handling transactions page:', error);
+    await bot.answerCallbackQuery({ callback_query_id: null }, {
+      text: '❌ Error loading page',
+      show_alert: true
+    });
+  }
+};
+
+// Helper function to handle today's transactions pagination
+const handleTransactionsTodayPage = async (chatId, messageId, page) => {
+  try {
+    // Check if user is verified using UserService
+    const verificationResult = await UserService.verifyUserByChatId(chatId);
+
+    if (!verificationResult.success) {
+      await bot.answerCallbackQuery({ callback_query_id: null }, {
+        text: '❌ Please connect first using /login',
+        show_alert: true
+      });
+      return;
+    }
+
+    const user = verificationResult.user;
+
+    // Get today's date for filtering
+    const today = new Date();
+    const todayStr = today.toISOString().split('T')[0]; // Format: YYYY-MM-DD
+
+    // Get transactions for today only
+    const resultTransactions = await getTransactionsService(user.user_id, {
+      dateFrom: todayStr,
+      dateTo: todayStr
+    }, page, 10);
+
+    // Use TelegramView to format the response
+    const response = TelegramView.formatTransactionsToday({
+      success: true,
+      data: {
+        user: user,
+        transactions: resultTransactions.transactions,
+        pagination: resultTransactions.pagination
+      }
+    }, page, 10);
+
+    await bot.editMessageText(response.text, {
+      chat_id: chatId,
+      message_id: messageId,
+      ...response.options
+    });
+
+  } catch (error) {
+    console.error('Error handling transactions today page:', error);
     await bot.answerCallbackQuery({ callback_query_id: null }, {
       text: '❌ Error loading page',
       show_alert: true
