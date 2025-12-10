@@ -266,6 +266,28 @@ export const deleteTransactionService = async (id, userId) => {
 };
 
 /**
+ * Creates a quick income transaction with default values
+ * @param {string} userId - User ID from authentication
+ * @param {number} amount - Transaction amount (must be positive)
+ * @returns {Promise<Object>} Created transaction object
+ * @throws {Error} If validation fails or database error occurs
+ */
+export const createQuickIncomeService = async (userId, amount) => {
+  return createTransactionService(userId, amount, 'income', 'Income', 'Quick income entry');
+};
+
+/**
+ * Creates a quick expense transaction with default values
+ * @param {string} userId - User ID from authentication
+ * @param {number} amount - Transaction amount (must be positive)
+ * @returns {Promise<Object>} Created transaction object
+ * @throws {Error} If validation fails or database error occurs
+ */
+export const createQuickExpenseService = async (userId, amount) => {
+  return createTransactionService(userId, amount, 'expense', 'Expense', 'Quick expense entry');
+};
+
+/**
  * Gets financial summary for a user within a date range
  * @param {string} userId - User ID from authentication
  * @param {string} dateFrom - Start date (optional)

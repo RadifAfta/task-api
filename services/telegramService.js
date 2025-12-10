@@ -1,6 +1,15 @@
 import TelegramBot from 'node-telegram-bot-api';
 import dotenv from 'dotenv';
 import { pool } from '../config/db.js';
+import {
+  createTransactionService,
+  getTransactionsService,
+  getTransactionSummaryService,
+  createQuickIncomeService,
+  createQuickExpenseService
+} from './transactionService.js';
+import UserService from './userService.js';
+import TelegramView from '../views/telegramView.js';
 
 dotenv.config();
 
@@ -80,6 +89,10 @@ const setupBotCommands = async () => {
       { command: 'today', description: '📅 View today\'s tasks' },
       { command: 'complete', description: '✅ Mark task as done' },
       { command: 'myroutines', description: '📋 View my routines' },
+      { command: 'transactions', description: '💰 View my transactions' },
+      { command: 'transaction_summary', description: '📊 Financial summary' },
+      { command: 'masuk', description: '💚 Quick income entry (/masuk amount)' },
+      { command: 'keluar', description: '❤️ Quick expense entry (/keluar amount)' },
       { command: 'status', description: 'ℹ️ Check connection & settings' },
       { command: 'menu', description: '📋 Show command menu' }
     ]);
@@ -1898,6 +1911,220 @@ Use /today to see your remaining tasks.
     }
   });
 
+  // /transactions command - View user's transactions
+  bot.onText(/\/transactions/, async (msg) => {
+    const chatId = msg.chat.id;
+    console.log(`💰 /transactions command received from ${msg.from.username || msg.from.first_name} (${chatId})`);
+
+    try {
+      // Check if user is verified using UserService
+      const verificationResult = await UserService.verifyUserByChatId(chatId);
+
+      if (!verificationResult.success) {
+        await bot.sendMessage(chatId,
+          '❌ *Not Connected*\n\n' +
+          'Please connect your Telegram account first using /verify or /login',
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+
+      const user = verificationResult.user;
+
+      // Get transactions
+      const resultTransactions = await getTransactionsService(user.user_id, {}, 1, 10);
+
+      // Use TelegramView to format the response
+      const response = TelegramView.formatTransactions({
+        success: true,
+        data: {
+          user: user,
+          transactions: resultTransactions.transactions,
+          pagination: resultTransactions.pagination
+        }
+      }, 1, 10);
+
+      await bot.sendMessage(chatId, response.text, response.options);
+
+    } catch (error) {
+      console.error('Error in transactions command:', error);
+      await bot.sendMessage(chatId, '❌ Error fetching transactions. Please try again.');
+    }
+  });
+
+  // /transaction_summary command - Get financial summary
+  bot.onText(/\/transaction_summary/, async (msg) => {
+    const chatId = msg.chat.id;
+    console.log(`📊 /transaction_summary command received from ${msg.from.username || msg.from.first_name} (${chatId})`);
+
+    try {
+      // Check if user is verified using UserService
+      const verificationResult = await UserService.verifyUserByChatId(chatId);
+
+      if (!verificationResult.success) {
+        await bot.sendMessage(chatId,
+          '❌ *Not Connected*\n\n' +
+          'Please connect your Telegram account first using /verify or /login',
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+
+      const user = verificationResult.user;
+
+      // Get summary for current month
+      const now = new Date();
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+      const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
+
+      const summary = await getTransactionSummaryService(user.user_id, startOfMonth, endOfMonth);
+
+      // Use TelegramView to format the response
+      const response = TelegramView.formatTransactionSummary({
+        success: true,
+        data: {
+          user: user,
+          summary: summary.summary,
+          recentTransactions: [] // TODO: Add recent transactions if needed
+        }
+      });
+
+      await bot.sendMessage(chatId, response.text, response.options);
+
+    } catch (error) {
+      console.error('Error in transaction_summary command:', error);
+      await bot.sendMessage(chatId, '❌ Error fetching summary. Please try again.');
+    }
+  });
+
+  // /masuk command - Quick income entry
+  bot.onText(/\/masuk(?:\s+(.+))?/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const amountStr = match[1]?.trim();
+
+    console.log(`💚 /masuk command received from ${msg.from.username || msg.from.first_name} (${chatId})`);
+    console.log(`💰 Amount: "${amountStr}"`);
+
+    try {
+      // Check if user is verified using UserService
+      const verificationResult = await UserService.verifyUserByChatId(chatId);
+
+      if (!verificationResult.success) {
+        await bot.sendMessage(chatId,
+          '❌ *Not Connected*\n\n' +
+          'Please connect your Telegram account first using /verify or /login',
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+
+      const user = verificationResult.user;
+
+      // Validate amount
+      if (!amountStr) {
+        await bot.sendMessage(chatId,
+          '❌ *Amount Required*\n\n' +
+          'Please specify the income amount.\n\n' +
+          '*Example:*\n' +
+          '`/masuk 50000`\n\n' +
+          'This will record Rp 50,000 as income.',
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+
+      const amount = parseInt(amountStr.replace(/[^\d]/g, ''));
+      if (isNaN(amount) || amount <= 0) {
+        await bot.sendMessage(chatId,
+          '❌ *Invalid Amount*\n\n' +
+          'Please enter a valid positive number.\n\n' +
+          '*Examples:*\n' +
+          '`/masuk 50000`\n' +
+          '`/masuk 100000`\n\n' +
+          'Use only numbers without currency symbols.',
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+
+      // Create income transaction using quick service
+      const transaction = await createQuickIncomeService(user.user_id, amount);
+
+      // Use TelegramView to format the success response
+      const response = TelegramView.formatTransactionCreated(transaction, user);
+
+      await bot.sendMessage(chatId, response.text, response.options);
+
+    } catch (error) {
+      console.error('Error in masuk command:', error);
+      await bot.sendMessage(chatId, '❌ Error recording income. Please try again.');
+    }
+  });
+
+  // /keluar command - Quick expense entry
+  bot.onText(/\/keluar(?:\s+(.+))?/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const amountStr = match[1]?.trim();
+
+    console.log(`❤️ /keluar command received from ${msg.from.username || msg.from.first_name} (${chatId})`);
+    console.log(`💰 Amount: "${amountStr}"`);
+
+    try {
+      // Check if user is verified using UserService
+      const verificationResult = await UserService.verifyUserByChatId(chatId);
+
+      if (!verificationResult.success) {
+        await bot.sendMessage(chatId,
+          '❌ *Not Connected*\n\n' +
+          'Please connect your Telegram account first using /verify or /login',
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+
+      const user = verificationResult.user;
+
+      // Validate amount
+      if (!amountStr) {
+        await bot.sendMessage(chatId,
+          '❌ *Amount Required*\n\n' +
+          'Please specify the expense amount.\n\n' +
+          '*Example:*\n' +
+          '`/keluar 25000`\n\n' +
+          'This will record Rp 25,000 as expense.',
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+
+      const amount = parseInt(amountStr.replace(/[^\d]/g, ''));
+      if (isNaN(amount) || amount <= 0) {
+        await bot.sendMessage(chatId,
+          '❌ *Invalid Amount*\n\n' +
+          'Please enter a valid positive number.\n\n' +
+          '*Examples:*\n' +
+          '`/keluar 25000`\n' +
+          '`/keluar 50000`\n\n' +
+          'Use only numbers without currency symbols.',
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+
+      // Create expense transaction using quick service
+      const transaction = await createQuickExpenseService(user.user_id, amount);
+
+      // Use TelegramView to format the success response
+      const response = TelegramView.formatTransactionCreated(transaction, user);
+
+      await bot.sendMessage(chatId, response.text, response.options);
+
+    } catch (error) {
+      console.error('Error in keluar command:', error);
+      await bot.sendMessage(chatId, '❌ Error recording expense. Please try again.');
+    }
+  });
+
   // /myroutines command - View user's routine templates
   bot.onText(/\/myroutines/, async (msg) => {
     const chatId = msg.chat.id;
@@ -3010,6 +3237,31 @@ Send your task info now, or /cancel to abort.
           );
           userStates.delete(chatId);
         }
+      } else if (data === 'cmd_transactions') {
+        // Trigger transactions command
+        const fakeMsg = {
+          chat: { id: chatId },
+          from: callbackQuery.from,
+          message_id: Date.now()
+        };
+        bot.processUpdate({
+          update_id: Date.now(),
+          message: {
+            ...fakeMsg,
+            date: Math.floor(Date.now() / 1000),
+            text: '/transactions'
+          }
+        });
+      } else if (data.startsWith('transactions_page_')) {
+        // Handle pagination for transactions
+        const page = parseInt(data.replace('transactions_page_', ''));
+        await handleTransactionsPage(chatId, messageId, page);
+      } else if (data === 'cmd_masuk') {
+        const response = TelegramView.formatQuickTransactionHelp('masuk', 'income');
+        await bot.sendMessage(chatId, response.text, response.options);
+      } else if (data === 'cmd_keluar') {
+        const response = TelegramView.formatQuickTransactionHelp('keluar', 'expense');
+        await bot.sendMessage(chatId, response.text, response.options);
       } else {
         // Unknown callback data
         console.log(`⚠️ Unknown callback data: ${data}`);
@@ -3110,6 +3362,11 @@ Send your task info now, or /cancel to abort.
     } else if (userState.action === 'awaiting_field_edit') {
       console.log(`✅ Processing field edit for user ${chatId}`);
       await handleFieldEditInput(chatId, text, userState);
+      userStates.delete(chatId);
+      console.log(`🗑️  State cleared for user ${chatId}`);
+    } else if (userState.action === 'awaiting_transaction_input') {
+      console.log(`✅ Processing transaction input for user ${chatId}`);
+      await handleTransactionInput(chatId, text, userState.userId, userState.userName);
       userStates.delete(chatId);
       console.log(`🗑️  State cleared for user ${chatId}`);
     } else if (userState.action === 'awaiting_login_email') {
@@ -5438,6 +5695,162 @@ Use /today to see your updated task list.
       `❌ Failed to update task: ${error.message}\n\nPlease try again.`,
       { parse_mode: 'Markdown' }
     );
+  }
+};
+
+// Helper function to handle transaction input
+const handleTransactionInput = async (chatId, input, userId, userName) => {
+  try {
+    console.log(`💰 handleTransactionInput called for user ${userId} (${userName})`);
+    console.log(`📝 Input: "${input}"`);
+
+    const parts = input.split('|').map(p => p.trim());
+    console.log(`📋 Parts:`, parts);
+
+    const type = parts[0]?.toLowerCase();
+    const amount = parts[1];
+    const category = parts[2];
+    const description = parts[3];
+    const date = parts[4];
+
+    console.log(`📌 Parsed - Type: "${type}", Amount: "${amount}", Category: "${category}", Description: "${description}", Date: "${date}"`);
+
+    // Validate type
+    if (!type || !['income', 'expense'].includes(type)) {
+      await bot.sendMessage(chatId,
+        '❌ *Invalid Type*\n\n' +
+        'Type must be "income" or "expense".\n\n' +
+        '*Examples:*\n' +
+        '`income | 5000000 | Salary | Monthly salary | 2025-12-10`\n' +
+        '`expense | 50000 | Food | Lunch | 2025-12-10`\n\n' +
+        'Please try /addtransaction again.',
+        { parse_mode: 'Markdown' }
+      );
+      return;
+    }
+
+    // Validate amount
+    const amountNum = parseInt(amount);
+    if (!amount || isNaN(amountNum) || amountNum <= 0) {
+      await bot.sendMessage(chatId,
+        '❌ *Invalid Amount*\n\n' +
+        'Amount must be a positive number.\n\n' +
+        '*Examples:*\n' +
+        '`income | 5000000 | Salary | Monthly salary`\n' +
+        '`expense | 50000 | Food | Lunch`\n\n' +
+        'Please try /addtransaction again.',
+        { parse_mode: 'Markdown' }
+      );
+      return;
+    }
+
+    // Validate category
+    if (!category || category.trim().length === 0) {
+      await bot.sendMessage(chatId,
+        '❌ *Invalid Category*\n\n' +
+        'Category is required.\n\n' +
+        '*Examples:*\n' +
+        '`income | 5000000 | Salary | Monthly salary`\n' +
+        '`expense | 50000 | Food | Lunch`\n\n' +
+        'Please try /addtransaction again.',
+        { parse_mode: 'Markdown' }
+      );
+      return;
+    }
+
+    // Validate description
+    if (!description || description.trim().length === 0) {
+      await bot.sendMessage(chatId,
+        '❌ *Invalid Description*\n\n' +
+        'Description is required.\n\n' +
+        '*Examples:*\n' +
+        '`income | 5000000 | Salary | Monthly salary`\n' +
+        '`expense | 50000 | Food | Lunch`\n\n' +
+        'Please try /addtransaction again.',
+        { parse_mode: 'Markdown' }
+      );
+      return;
+    }
+
+    // Validate date (optional, YYYY-MM-DD format)
+    let finalDate = null;
+    if (date) {
+      const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+      if (!dateRegex.test(date)) {
+        await bot.sendMessage(chatId,
+          '❌ *Invalid Date Format*\n\n' +
+          'Date must be in YYYY-MM-DD format.\n\n' +
+          '*Examples:*\n' +
+          '`income | 5000000 | Salary | Monthly salary | 2025-12-10`\n' +
+          '`expense | 50000 | Food | Lunch` (uses today\'s date)\n\n' +
+          'Please try /addtransaction again.',
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+      finalDate = date;
+    }
+
+    console.log(`✅ Validated - Type: "${type}", Amount: ${amountNum}, Category: "${category}", Description: "${description}", Date: "${finalDate}"`);
+
+    // Create transaction
+    const transaction = await createTransactionService(userId, amountNum, type, category, description, finalDate);
+
+    // Use TelegramView to format the success response
+    const response = TelegramView.formatTransactionCreated(transaction, user);
+
+    await bot.sendMessage(chatId, response.text, response.options);
+
+  } catch (error) {
+    console.error('❌ Error creating transaction:', error);
+    await bot.sendMessage(chatId,
+      `❌ Failed to add transaction: ${error.message}\n\nPlease try again with /addtransaction.`,
+      { parse_mode: 'Markdown' }
+    );
+  }
+};
+
+// Helper function to handle transactions pagination
+const handleTransactionsPage = async (chatId, messageId, page) => {
+  try {
+    // Check if user is verified using UserService
+    const verificationResult = await UserService.verifyUserByChatId(chatId);
+
+    if (!verificationResult.success) {
+      await bot.answerCallbackQuery({ callback_query_id: null }, {
+        text: '❌ Please connect first using /login',
+        show_alert: true
+      });
+      return;
+    }
+
+    const user = verificationResult.user;
+
+    // Get transactions for the page
+    const resultTransactions = await getTransactionsService(user.user_id, {}, page, 10);
+
+    // Use TelegramView to format the response
+    const response = TelegramView.formatTransactions({
+      success: true,
+      data: {
+        user: user,
+        transactions: resultTransactions.transactions,
+        pagination: resultTransactions.pagination
+      }
+    }, page, 10);
+
+    await bot.editMessageText(response.text, {
+      chat_id: chatId,
+      message_id: messageId,
+      ...response.options
+    });
+
+  } catch (error) {
+    console.error('Error handling transactions page:', error);
+    await bot.answerCallbackQuery({ callback_query_id: null }, {
+      text: '❌ Error loading page',
+      show_alert: true
+    });
   }
 };
 

@@ -377,6 +377,210 @@ Manage your settings in the LifePath app! 📱
       options: { parse_mode: 'Markdown' }
     };
   }
+
+  /**
+   * Format transactions list response
+   */
+  static formatTransactions(result, page = 1, limit = 10) {
+    if (!result.success) {
+      return {
+        text: `❌ *Error*\n\n${result.error || 'Failed to fetch transactions'}`,
+        options: { parse_mode: 'Markdown' }
+      };
+    }
+
+    const { user, transactions, pagination } = result.data;
+
+    if (transactions.length === 0) {
+      return {
+        text: `💰 *${user.bot_name || 'Assistant'} Presents Your Financial Records*\n\n${user.bot_name || 'Assistant'} reports that you have no transaction records yet.\n\nStart tracking your finances with /addtransaction or use quick commands!`,
+        options: {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: '💚 Add Income', callback_data: 'cmd_masuk' },
+                { text: '❤️ Add Expense', callback_data: 'cmd_keluar' }
+              ],
+              [
+                { text: '➕ Full Entry', callback_data: 'cmd_addtransaction' }
+              ]
+            ]
+          }
+        }
+      };
+    }
+
+    let message = `💰 *${user.bot_name || 'Assistant'} Presents Your Financial Records*\n\n`;
+    message += `*Page ${page} of ${pagination.totalPages}* (${pagination.total} total transactions)\n\n`;
+
+    transactions.forEach((transaction, index) => {
+      const emoji = transaction.type === 'income' ? '💚' : '❤️';
+      const amount = new Intl.NumberFormat('id-ID').format(transaction.amount);
+      const date = new Date(transaction.transaction_date).toLocaleDateString('id-ID');
+
+      message += `${emoji} *${transaction.category}*\n`;
+      message += `💰 Rp ${amount}\n`;
+      message += `📄 ${transaction.description}\n`;
+      message += `📅 ${date}\n\n`;
+    });
+
+    // Create pagination buttons
+    const keyboard = [];
+
+    if (pagination.hasPrevPage || pagination.hasNextPage) {
+      const paginationRow = [];
+      if (pagination.hasPrevPage) {
+        paginationRow.push({
+          text: '⬅️ Previous',
+          callback_data: `transactions_page_${page - 1}`
+        });
+      }
+      if (pagination.hasNextPage) {
+        paginationRow.push({
+          text: 'Next ➡️',
+          callback_data: `transactions_page_${page + 1}`
+        });
+      }
+      keyboard.push(paginationRow);
+    }
+
+    // Add action buttons
+    keyboard.push([
+      { text: '💚 Add Income', callback_data: 'cmd_masuk' },
+      { text: '❤️ Add Expense', callback_data: 'cmd_keluar' }
+    ]);
+
+    return {
+      text: message,
+      options: {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: keyboard
+        }
+      }
+    };
+  }
+
+  /**
+   * Format transaction summary response
+   */
+  static formatTransactionSummary(result) {
+    if (!result.success) {
+      return {
+        text: `❌ *Error*\n\n${result.error || 'Failed to fetch transaction summary'}`,
+        options: { parse_mode: 'Markdown' }
+      };
+    }
+
+    const { user, summary } = result.data;
+
+    const totalIncome = new Intl.NumberFormat('id-ID').format(summary.totalIncome);
+    const totalExpense = new Intl.NumberFormat('id-ID').format(summary.totalExpense);
+    const netAmount = summary.balance; // Fixed: was summary.netAmount
+    const netFormatted = new Intl.NumberFormat('id-ID').format(Math.abs(netAmount));
+    const netEmoji = netAmount >= 0 ? '📈' : '📉';
+    const netText = netAmount >= 0 ? 'Surplus' : 'Deficit';
+
+    let message = `📊 *${user.bot_name || 'Assistant'} Presents Your Financial Summary*\n\n`;
+
+    message += `💰 *INCOME:* Rp ${totalIncome}\n`;
+    message += `💸 *EXPENSE:* Rp ${totalExpense}\n`;
+    message += `${netEmoji} *${netText}:* Rp ${netFormatted}\n\n`;
+
+    if (summary.recentTransactions && summary.recentTransactions.length > 0) {
+      message += `*Recent Transactions:*\n`;
+      summary.recentTransactions.slice(0, 5).forEach((transaction, index) => {
+        const emoji = transaction.type === 'income' ? '💚' : '❤️';
+        const amount = new Intl.NumberFormat('id-ID').format(transaction.amount);
+        const date = new Date(transaction.transaction_date).toLocaleDateString('id-ID');
+
+        message += `${index + 1}. ${emoji} ${transaction.category} - Rp ${amount} (${date})\n`;
+      });
+
+      if (summary.recentTransactions.length > 5) {
+        message += `\n...and ${summary.recentTransactions.length - 5} more\n`;
+      }
+    }
+
+    return {
+      text: message,
+      options: {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '💚 Add Income', callback_data: 'cmd_masuk' },
+              { text: '❤️ Add Expense', callback_data: 'cmd_keluar' }
+            ],
+            [
+              { text: '📋 View All', callback_data: 'cmd_transactions' }
+            ]
+          ]
+        }
+      }
+    };
+  }
+
+  /**
+   * Format transaction creation success response
+   */
+  static formatTransactionCreated(transaction, user) {
+    const emoji = transaction.type === 'income' ? '💚' : '❤️';
+    const amountFormatted = new Intl.NumberFormat('id-ID').format(transaction.amount);
+    const dateDisplay = new Date(transaction.transaction_date).toLocaleDateString('id-ID');
+
+    const successMessage = `
+✅ *Transaction Recorded!*
+
+${emoji} *${transaction.type.toUpperCase()}*
+💰 *Amount:* Rp ${amountFormatted}
+📁 *Category:* ${transaction.category}
+📄 *Description:* ${transaction.description}
+📅 *Date:* ${dateDisplay}
+
+Your financial record has been saved successfully!
+
+Use /transactions to view all records.
+    `;
+
+    return {
+      text: successMessage,
+      options: {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              transaction.type === 'income'
+                ? { text: '➕ Add Expense', callback_data: 'cmd_keluar' }
+                : { text: '➕ Add Income', callback_data: 'cmd_masuk' },
+              { text: '📋 View All', callback_data: 'cmd_transactions' }
+            ]
+          ]
+        }
+      }
+    };
+  }
+
+  /**
+   * Format quick transaction command help
+   */
+  static formatQuickTransactionHelp(command, type) {
+    const emoji = type === 'income' ? '💚' : '❤️';
+    const commandName = command === 'masuk' ? 'Income' : 'Expense';
+    const exampleAmount = type === 'income' ? '50000' : '25000';
+
+    const helpMessage = `${emoji} *Quick ${commandName} Entry*\n\n` +
+      `Enter the ${type} amount:\n\n` +
+      `*Example:*\n` +
+      `\`/${command} ${exampleAmount}\`\n\n` +
+      `This will record Rp ${new Intl.NumberFormat('id-ID').format(parseInt(exampleAmount))} as ${type}.`;
+
+    return {
+      text: helpMessage,
+      options: { parse_mode: 'Markdown' }
+    };
+  }
 }
 
 export default TelegramView;
