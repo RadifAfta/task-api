@@ -519,3 +519,46 @@ export const validateCreateTransaction = [
     }),
   handleValidationErrors
 ];
+
+// Validation rules untuk Update Transaction
+export const validateUpdateTransaction = [
+  body('type')
+    .optional()
+    .trim()
+    .notEmpty()
+    .withMessage('Type is required')
+    .isIn(['income', 'expense'])
+    .withMessage('Type must be one of: income, expense'),
+  body('amount')
+    .optional()
+    .notEmpty()
+    .withMessage('Amount is required')
+    .isInt({ min: 1 })
+    .withMessage('Amount must be a positive integer')
+    .toInt(),
+  body('category')
+    .optional()
+    .trim()
+    .notEmpty()
+    .withMessage('Category is required')
+    .isLength({ min: 1, max: 50 })
+    .withMessage('Category must be between 1-50 characters'),
+  body('description')
+    .optional()
+    .trim()
+    .notEmpty()
+    .withMessage('Description is required')
+    .isLength({ max: 1000 })
+    .withMessage('Description must not exceed 1000 characters'),
+  body('transaction_date')
+    .optional()
+    .isISO8601()
+    .withMessage('Transaction date must be a valid date in ISO 8601 format (YYYY-MM-DD)')
+    .custom((value) => {
+      if (value && new Date(value) > new Date()) {
+        throw new Error('Transaction date cannot be in the future');
+      }
+      return true;
+    }),
+  handleValidationErrors
+];
