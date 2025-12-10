@@ -91,8 +91,8 @@ const setupBotCommands = async () => {
       { command: 'myroutines', description: '📋 View my routines' },
       { command: 'transactions', description: '💰 View my transactions' },
       { command: 'transaction_summary', description: '📊 Financial summary' },
-      { command: 'masuk', description: '💚 Quick income entry (/masuk amount)' },
-      { command: 'keluar', description: '❤️ Quick expense entry (/keluar amount)' },
+      { command: 'income', description: '📈 Quick income entry (/income amount)' },
+      { command: 'expense', description: '📉 Quick expense entry (/expense amount)' },
       { command: 'status', description: 'ℹ️ Check connection & settings' },
       { command: 'menu', description: '📋 Show command menu' }
     ]);
@@ -1997,12 +1997,12 @@ Use /today to see your remaining tasks.
     }
   });
 
-  // /masuk command - Quick income entry
-  bot.onText(/\/masuk(?:\s+(.+))?/, async (msg, match) => {
+  // /income command - Quick income entry
+  bot.onText(/\/income(?:\s+(.+))?/, async (msg, match) => {
     const chatId = msg.chat.id;
     const amountStr = match[1]?.trim();
 
-    console.log(`💚 /masuk command received from ${msg.from.username || msg.from.first_name} (${chatId})`);
+    console.log(`📈 /income command received from ${msg.from.username || msg.from.first_name} (${chatId})`);
     console.log(`💰 Amount: "${amountStr}"`);
 
     try {
@@ -2026,7 +2026,7 @@ Use /today to see your remaining tasks.
           '❌ *Amount Required*\n\n' +
           'Please specify the income amount.\n\n' +
           '*Example:*\n' +
-          '`/masuk 50000`\n\n' +
+          '`/income 50000`\n\n' +
           'This will record Rp 50,000 as income.',
           { parse_mode: 'Markdown' }
         );
@@ -2039,8 +2039,8 @@ Use /today to see your remaining tasks.
           '❌ *Invalid Amount*\n\n' +
           'Please enter a valid positive number.\n\n' +
           '*Examples:*\n' +
-          '`/masuk 50000`\n' +
-          '`/masuk 100000`\n\n' +
+          '`/income 50000`\n' +
+          '`/income 100000`\n\n' +
           'Use only numbers without currency symbols.',
           { parse_mode: 'Markdown' }
         );
@@ -2056,17 +2056,17 @@ Use /today to see your remaining tasks.
       await bot.sendMessage(chatId, response.text, response.options);
 
     } catch (error) {
-      console.error('Error in masuk command:', error);
+      console.error('Error in income command:', error);
       await bot.sendMessage(chatId, '❌ Error recording income. Please try again.');
     }
   });
 
-  // /keluar command - Quick expense entry
-  bot.onText(/\/keluar(?:\s+(.+))?/, async (msg, match) => {
+  // /expense command - Quick expense entry
+  bot.onText(/\/expense(?:\s+(.+))?/, async (msg, match) => {
     const chatId = msg.chat.id;
     const amountStr = match[1]?.trim();
 
-    console.log(`❤️ /keluar command received from ${msg.from.username || msg.from.first_name} (${chatId})`);
+    console.log(`📉 /expense command received from ${msg.from.username || msg.from.first_name} (${chatId})`);
     console.log(`💰 Amount: "${amountStr}"`);
 
     try {
@@ -2090,7 +2090,7 @@ Use /today to see your remaining tasks.
           '❌ *Amount Required*\n\n' +
           'Please specify the expense amount.\n\n' +
           '*Example:*\n' +
-          '`/keluar 25000`\n\n' +
+          '`/expense 25000`\n\n' +
           'This will record Rp 25,000 as expense.',
           { parse_mode: 'Markdown' }
         );
@@ -2103,8 +2103,8 @@ Use /today to see your remaining tasks.
           '❌ *Invalid Amount*\n\n' +
           'Please enter a valid positive number.\n\n' +
           '*Examples:*\n' +
-          '`/keluar 25000`\n' +
-          '`/keluar 50000`\n\n' +
+          '`/expense 25000`\n' +
+          '`/expense 50000`\n\n' +
           'Use only numbers without currency symbols.',
           { parse_mode: 'Markdown' }
         );
@@ -2120,7 +2120,7 @@ Use /today to see your remaining tasks.
       await bot.sendMessage(chatId, response.text, response.options);
 
     } catch (error) {
-      console.error('Error in keluar command:', error);
+      console.error('Error in expense command:', error);
       await bot.sendMessage(chatId, '❌ Error recording expense. Please try again.');
     }
   });
@@ -3256,11 +3256,11 @@ Send your task info now, or /cancel to abort.
         // Handle pagination for transactions
         const page = parseInt(data.replace('transactions_page_', ''));
         await handleTransactionsPage(chatId, messageId, page);
-      } else if (data === 'cmd_masuk') {
-        const response = TelegramView.formatQuickTransactionHelp('masuk', 'income');
+      } else if (data === 'cmd_income') {
+        const response = TelegramView.formatQuickTransactionHelp('income', 'income');
         await bot.sendMessage(chatId, response.text, response.options);
-      } else if (data === 'cmd_keluar') {
-        const response = TelegramView.formatQuickTransactionHelp('keluar', 'expense');
+      } else if (data === 'cmd_expense') {
+        const response = TelegramView.formatQuickTransactionHelp('expense', 'expense');
         await bot.sendMessage(chatId, response.text, response.options);
       } else {
         // Unknown callback data

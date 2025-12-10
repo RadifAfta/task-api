@@ -399,8 +399,8 @@ Manage your settings in the LifePath app! 📱
           reply_markup: {
             inline_keyboard: [
               [
-                { text: '💚 Add Income', callback_data: 'cmd_masuk' },
-                { text: '❤️ Add Expense', callback_data: 'cmd_keluar' }
+                { text: '📈 Add Income', callback_data: 'cmd_income' },
+                { text: '📉 Add Expense', callback_data: 'cmd_expense' }
               ],
               [
                 { text: '➕ Full Entry', callback_data: 'cmd_addtransaction' }
@@ -415,7 +415,7 @@ Manage your settings in the LifePath app! 📱
     message += `*Page ${page} of ${pagination.totalPages}* (${pagination.total} total transactions)\n\n`;
 
     transactions.forEach((transaction, index) => {
-      const emoji = transaction.type === 'income' ? '💚' : '❤️';
+      const emoji = transaction.type === 'income' ? '📈' : '📉';
       const amount = new Intl.NumberFormat('id-ID').format(transaction.amount);
       const date = new Date(transaction.transaction_date).toLocaleDateString('id-ID');
 
@@ -447,8 +447,8 @@ Manage your settings in the LifePath app! 📱
 
     // Add action buttons
     keyboard.push([
-      { text: '💚 Add Income', callback_data: 'cmd_masuk' },
-      { text: '❤️ Add Expense', callback_data: 'cmd_keluar' }
+      { text: '📈 Add Income', callback_data: 'cmd_income' },
+      { text: '📉 Add Expense', callback_data: 'cmd_expense' }
     ]);
 
     return {
@@ -484,14 +484,14 @@ Manage your settings in the LifePath app! 📱
 
     let message = `📊 *${user.bot_name || 'Assistant'} Presents Your Financial Summary*\n\n`;
 
-    message += `💰 *INCOME:* Rp ${totalIncome}\n`;
-    message += `💸 *EXPENSE:* Rp ${totalExpense}\n`;
+    message += `📈 *INCOME:* Rp ${totalIncome}\n`;
+    message += `📉 *EXPENSE:* Rp ${totalExpense}\n`;
     message += `${netEmoji} *${netText}:* Rp ${netFormatted}\n\n`;
 
     if (summary.recentTransactions && summary.recentTransactions.length > 0) {
       message += `*Recent Transactions:*\n`;
       summary.recentTransactions.slice(0, 5).forEach((transaction, index) => {
-        const emoji = transaction.type === 'income' ? '💚' : '❤️';
+        const emoji = transaction.type === 'income' ? '📈' : '📉';
         const amount = new Intl.NumberFormat('id-ID').format(transaction.amount);
         const date = new Date(transaction.transaction_date).toLocaleDateString('id-ID');
 
@@ -510,8 +510,8 @@ Manage your settings in the LifePath app! 📱
         reply_markup: {
           inline_keyboard: [
             [
-              { text: '💚 Add Income', callback_data: 'cmd_masuk' },
-              { text: '❤️ Add Expense', callback_data: 'cmd_keluar' }
+              { text: '📈 Add Income', callback_data: 'cmd_income' },
+              { text: '📉 Add Expense', callback_data: 'cmd_expense' }
             ],
             [
               { text: '📋 View All', callback_data: 'cmd_transactions' }
@@ -526,7 +526,7 @@ Manage your settings in the LifePath app! 📱
    * Format transaction creation success response
    */
   static formatTransactionCreated(transaction, user) {
-    const emoji = transaction.type === 'income' ? '💚' : '❤️';
+    const emoji = transaction.type === 'income' ? '📈' : '📉';
     const amountFormatted = new Intl.NumberFormat('id-ID').format(transaction.amount);
     const dateDisplay = new Date(transaction.transaction_date).toLocaleDateString('id-ID');
 
@@ -552,8 +552,8 @@ Use /transactions to view all records.
           inline_keyboard: [
             [
               transaction.type === 'income'
-                ? { text: '➕ Add Expense', callback_data: 'cmd_keluar' }
-                : { text: '➕ Add Income', callback_data: 'cmd_masuk' },
+                ? { text: '➕ Add Expense', callback_data: 'cmd_expense' }
+                : { text: '➕ Add Income', callback_data: 'cmd_income' },
               { text: '📋 View All', callback_data: 'cmd_transactions' }
             ]
           ]
@@ -566,8 +566,8 @@ Use /transactions to view all records.
    * Format quick transaction command help
    */
   static formatQuickTransactionHelp(command, type) {
-    const emoji = type === 'income' ? '💚' : '❤️';
-    const commandName = command === 'masuk' ? 'Income' : 'Expense';
+    const emoji = type === 'income' ? '📈' : '📉';
+    const commandName = command === 'income' ? 'Income' : 'Expense';
     const exampleAmount = type === 'income' ? '50000' : '25000';
 
     const helpMessage = `${emoji} *Quick ${commandName} Entry*\n\n` +
