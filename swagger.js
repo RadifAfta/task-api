@@ -13,28 +13,12 @@ const options = {
   definition: {
     openapi: "3.0.0",
     info: {
-      title: "Task API",
+      title: "LIFE PATH API",
       version: "1.0.0",
       description: `
-## 🚀 Task Management API
+## 🚀 Life Path API
 
-RESTful API untuk manajemen task dengan fitur authentication dan authorization.
-
-### 🔑 Authentication
-API ini menggunakan JWT (JSON Web Token) untuk authentication. Setelah login, gunakan token yang didapat untuk mengakses protected endpoints.
-
-### 📋 Features
-- **Authentication**: Register, Login dengan JWT
-- **Task Management**: CRUD operations untuk task
-- **Pagination**: Support pagination untuk list data
-- **Admin Panel**: Endpoint khusus untuk admin
-- **Role-based Access**: User dan Admin roles
-
-### 🔄 Quick Start
-1. Register user baru di \`/auth/register\`
-2. Login di \`/auth/login\` untuk mendapatkan token
-3. Gunakan token untuk mengakses protected endpoints
-4. Set Authorization header: \`Bearer YOUR_TOKEN\`
+RESTful API untuk manajemen tugas harian dengan fitur autentikasi, otorisasi, pengingat dan modul keuangan.
 
 ### 📖 Documentation
 Gunakan tombol **"Try it out"** pada setiap endpoint untuk testing langsung.

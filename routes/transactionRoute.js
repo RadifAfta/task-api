@@ -1,7 +1,7 @@
 import express from "express";
 import { verifyToken } from "../middlewares/authMiddleware.js";
 
-import { createTransactionController, getTransactionsController, getTransactionByIdController, updateTransactionController, deleteTransactionController } from "../controllers/transactionController.js";
+import { createTransactionController, getTransactionsController, getTransactionByIdController, updateTransactionController, deleteTransactionController, getTransactionSummaryController } from "../controllers/transactionController.js";
 import { validateCreateTransaction, validateUpdateTransaction } from "../middlewares/validationMiddleware.js";
 
 const router = express.Router();
@@ -202,6 +202,88 @@ router.use(verifyToken);
 router.post("/", validateCreateTransaction, createTransactionController);
 
 router.get("/", getTransactionsController);
+
+/**
+ * @swagger
+ * /transactions/summary:
+ *   get:
+ *     tags: ['Transactions']
+ *     summary: Get transaction summary
+ *     description: Retrieves financial summary (income, expense, balance) for the authenticated user within optional date range.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - name: dateFrom
+ *         in: query
+ *         description: Start date for summary (YYYY-MM-DD)
+ *         required: false
+ *         schema:
+ *           type: string
+ *           format: date
+ *       - name: dateTo
+ *         in: query
+ *         description: End date for summary (YYYY-MM-DD)
+ *         required: false
+ *         schema:
+ *           type: string
+ *           format: date
+ *     responses:
+ *       200:
+ *         description: Summary retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     summary:
+ *                       type: object
+ *                       properties:
+ *                         totalIncome:
+ *                           type: number
+ *                         totalExpense:
+ *                           type: number
+ *                         balance:
+ *                           type: number
+ *                         transactionCount:
+ *                           type: integer
+ *                     breakdown:
+ *                       type: object
+ *                       properties:
+ *                         income:
+ *                           type: object
+ *                           properties:
+ *                             total:
+ *                               type: number
+ *                             count:
+ *                               type: integer
+ *                         expense:
+ *                           type: object
+ *                           properties:
+ *                             total:
+ *                               type: number
+ *                             count:
+ *                               type: integer
+ *                     period:
+ *                       type: object
+ *                       properties:
+ *                         from:
+ *                           type: string
+ *                           format: date
+ *                         to:
+ *                           type: string
+ *                           format: date
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Internal server error
+ */
+
+router.get("/summary", getTransactionSummaryController);
 
 /**
  * @swagger
