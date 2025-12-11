@@ -1924,7 +1924,7 @@ Use /today to see your remaining tasks.
   });
 
   // /transactions command - View user's transactions
-  bot.onText(/\/transactions/, async (msg) => {
+  bot.onText(/\/transactions\b/, async (msg) => {
     const chatId = msg.chat.id;
     console.log(`💰 /transactions command received from ${msg.from.username || msg.from.first_name} (${chatId})`);
 
@@ -2060,10 +2060,10 @@ Use /today to see your remaining tasks.
   // /income command - Quick income entry
   bot.onText(/\/income(?:\s+(.+))?/, async (msg, match) => {
     const chatId = msg.chat.id;
-    const amountStr = match[1]?.trim();
+    const inputStr = match[1]?.trim();
 
     console.log(`📈 /income command received from ${msg.from.username || msg.from.first_name} (${chatId})`);
-    console.log(`💰 Amount: "${amountStr}"`);
+    console.log(`💰 Input: "${inputStr}"`);
 
     try {
       // Check if user is verified using UserService
@@ -2080,18 +2080,24 @@ Use /today to see your remaining tasks.
 
       const user = verificationResult.user;
 
-      // Validate amount
-      if (!amountStr) {
+      // Validate input
+      if (!inputStr) {
         await bot.sendMessage(chatId,
           '❌ *Amount Required*\n\n' +
           'Please specify the income amount.\n\n' +
-          '*Example:*\n' +
-          '`/income 50000`\n\n' +
+          '*Examples:*\n' +
+          '`/income 50000`\n' +
+          '`/income gaji 50000`\n\n' +
           'This will record Rp 50,000 as income.',
           { parse_mode: 'Markdown' }
         );
         return;
       }
+
+      // Parse input: split by spaces, last part is amount, rest is description
+      const parts = inputStr.split(/\s+/);
+      const amountStr = parts[parts.length - 1];
+      const description = parts.length > 1 ? parts.slice(0, -1).join(' ') : 'Quick income entry';
 
       const amount = parseInt(amountStr.replace(/[^\d]/g, ''));
       if (isNaN(amount) || amount <= 0) {
@@ -2100,15 +2106,15 @@ Use /today to see your remaining tasks.
           'Please enter a valid positive number.\n\n' +
           '*Examples:*\n' +
           '`/income 50000`\n' +
-          '`/income 100000`\n\n' +
-          'Use only numbers without currency symbols.',
+          '`/income gaji 50000`\n\n' +
+          'Use only numbers for the amount.',
           { parse_mode: 'Markdown' }
         );
         return;
       }
 
       // Create income transaction using quick service
-      const transaction = await createQuickIncomeService(user.user_id, amount);
+      const transaction = await createQuickIncomeService(user.user_id, amount, description);
 
       // Use TelegramView to format the success response
       const response = TelegramView.formatTransactionCreated(transaction, user);
@@ -2124,10 +2130,10 @@ Use /today to see your remaining tasks.
   // /expense command - Quick expense entry
   bot.onText(/\/expense(?:\s+(.+))?/, async (msg, match) => {
     const chatId = msg.chat.id;
-    const amountStr = match[1]?.trim();
+    const inputStr = match[1]?.trim();
 
     console.log(`📉 /expense command received from ${msg.from.username || msg.from.first_name} (${chatId})`);
-    console.log(`💰 Amount: "${amountStr}"`);
+    console.log(`💰 Input: "${inputStr}"`);
 
     try {
       // Check if user is verified using UserService
@@ -2144,18 +2150,24 @@ Use /today to see your remaining tasks.
 
       const user = verificationResult.user;
 
-      // Validate amount
-      if (!amountStr) {
+      // Validate input
+      if (!inputStr) {
         await bot.sendMessage(chatId,
           '❌ *Amount Required*\n\n' +
           'Please specify the expense amount.\n\n' +
-          '*Example:*\n' +
-          '`/expense 25000`\n\n' +
+          '*Examples:*\n' +
+          '`/expense 25000`\n' +
+          '`/expense bakso 25000`\n\n' +
           'This will record Rp 25,000 as expense.',
           { parse_mode: 'Markdown' }
         );
         return;
       }
+
+      // Parse input: split by spaces, last part is amount, rest is description
+      const parts = inputStr.split(/\s+/);
+      const amountStr = parts[parts.length - 1];
+      const description = parts.length > 1 ? parts.slice(0, -1).join(' ') : 'Quick expense entry';
 
       const amount = parseInt(amountStr.replace(/[^\d]/g, ''));
       if (isNaN(amount) || amount <= 0) {
@@ -2164,15 +2176,15 @@ Use /today to see your remaining tasks.
           'Please enter a valid positive number.\n\n' +
           '*Examples:*\n' +
           '`/expense 25000`\n' +
-          '`/expense 50000`\n\n' +
-          'Use only numbers without currency symbols.',
+          '`/expense bakso 25000`\n\n' +
+          'Use only numbers for the amount.',
           { parse_mode: 'Markdown' }
         );
         return;
       }
 
       // Create expense transaction using quick service
-      const transaction = await createQuickExpenseService(user.user_id, amount);
+      const transaction = await createQuickExpenseService(user.user_id, amount, description);
 
       // Use TelegramView to format the success response
       const response = TelegramView.formatTransactionCreated(transaction, user);

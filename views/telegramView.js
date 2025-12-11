@@ -661,11 +661,13 @@ Use /transactions to view all records.
     const emoji = type === 'income' ? '📈' : '📉';
     const commandName = command === 'income' ? 'Income' : 'Expense';
     const exampleAmount = type === 'income' ? '50000' : '25000';
+    const exampleDesc = type === 'income' ? 'gaji' : 'bakso';
 
     const helpMessage = `${emoji} *Quick ${commandName} Entry*\n\n` +
-      `Enter the ${type} amount:\n\n` +
-      `*Example:*\n` +
-      `\`/${command} ${exampleAmount}\`\n\n` +
+      `Enter the ${type} amount with optional description:\n\n` +
+      `*Examples:*\n` +
+      `\`/${command} ${exampleAmount}\`\n` +
+      `\`/${command} ${exampleDesc} ${exampleAmount}\`\n\n` +
       `This will record Rp ${new Intl.NumberFormat('id-ID').format(parseInt(exampleAmount))} as ${type}.`;
 
     return {

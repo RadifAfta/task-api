@@ -272,8 +272,8 @@ export const deleteTransactionService = async (id, userId) => {
  * @returns {Promise<Object>} Created transaction object
  * @throws {Error} If validation fails or database error occurs
  */
-export const createQuickIncomeService = async (userId, amount) => {
-  return createTransactionService(userId, amount, 'income', 'Income', 'Quick income entry');
+export const createQuickIncomeService = async (userId, amount, description = 'Quick income entry') => {
+  return createTransactionService(userId, amount, 'income', 'Income', description);
 };
 
 /**
@@ -283,8 +283,8 @@ export const createQuickIncomeService = async (userId, amount) => {
  * @returns {Promise<Object>} Created transaction object
  * @throws {Error} If validation fails or database error occurs
  */
-export const createQuickExpenseService = async (userId, amount) => {
-  return createTransactionService(userId, amount, 'expense', 'Expense', 'Quick expense entry');
+export const createQuickExpenseService = async (userId, amount, description = 'Quick expense entry') => {
+  return createTransactionService(userId, amount, 'expense', 'Expense', description);
 };
 
 /**
