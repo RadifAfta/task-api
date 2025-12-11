@@ -308,6 +308,9 @@ I'm your personal task reminder assistant. I'll help you stay on track with your
 • ⏰ Get automatic task reminders
 • 📊 Receive daily summaries
 • 🎯 Track your progress
+• 💰 Track finances with \`/income\` & \`/expense\`
+• 📈 View financial summaries with \`/transaction_summary\`
+• 💸 Monitor daily spending with \`/transactions_today\`
 
 *Quick Commands:*
 Tap any button below or type the command:
@@ -326,6 +329,14 @@ Tap any button below or type the command:
         [
           { text: '📊 Status', callback_data: 'cmd_status' },
           { text: '📋 Menu', callback_data: 'cmd_menu' }
+        ],
+        [
+          { text: '💰 Transactions', callback_data: 'cmd_transactions' },
+          { text: '📈 Add Income', callback_data: 'cmd_income' }
+        ],
+        [
+          { text: '📉 Add Expense', callback_data: 'cmd_expense' },
+          { text: '📊 Summary', callback_data: 'cmd_transaction_summary' }
         ]
       ]
     };
@@ -3347,6 +3358,21 @@ Send your task info now, or /cancel to abort.
         // Handle pagination for today's transactions
         const page = parseInt(data.replace('transactions_today_page_', ''));
         await handleTransactionsTodayPage(chatId, messageId, page);
+      } else if (data === 'cmd_transaction_summary') {
+        // Trigger transaction_summary command
+        const fakeMsg = {
+          chat: { id: chatId },
+          from: callbackQuery.from,
+          message_id: Date.now()
+        };
+        bot.processUpdate({
+          update_id: Date.now(),
+          message: {
+            ...fakeMsg,
+            date: Math.floor(Date.now() / 1000),
+            text: '/transaction_summary'
+          }
+        });
       } else if (data === 'cmd_income') {
         const response = TelegramView.formatQuickTransactionHelp('income', 'income');
         await bot.sendMessage(chatId, response.text, response.options);
