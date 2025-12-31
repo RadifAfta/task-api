@@ -2,6 +2,7 @@ import { validationResult } from 'express-validator';
 import * as reminderModel from '../models/reminderModel.js';
 import * as reminderService from '../services/reminderService.js';
 import * as telegramService from '../services/telegramService.js';
+import moment from 'moment-timezone';
 
 /**
  * Reminder Controller
@@ -314,8 +315,8 @@ export const testReminder = async (req, res) => {
       notificationType: 'test',
       messageTitle: 'Test Notification',
       messageBody: 'System test successful',
-      scheduledAt: new Date(),
-      sentAt: new Date(),
+      scheduledAt: moment().tz('Asia/Jakarta').toDate(),
+      sentAt: moment().tz('Asia/Jakarta').toDate(),
       deliveryStatus: 'sent',
       telegramMessageId: result.message_id
     });

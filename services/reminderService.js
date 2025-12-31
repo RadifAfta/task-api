@@ -2,6 +2,7 @@ import pool from '../config/db.js';
 import * as reminderModel from '../models/reminderModel.js';
 import * as taskModel from '../models/taskModel.js';
 import * as telegramService from './telegramService.js';
+import moment from 'moment-timezone';
 
 /**
  * Smart Reminder Service
@@ -35,7 +36,7 @@ export const scheduleRemindersForTask = async (task) => {
     const reminderMinutes = settings.reminder_before_minutes || [15, 30, 60];
     
     // Create task datetime from due_date and time_start
-    const taskDate = task.due_date || new Date().toISOString().split('T')[0];
+    const taskDate = task.due_date || moment().tz('Asia/Jakarta').format('YYYY-MM-DD');
     const taskDateTime = new Date(`${taskDate}T${task.time_start}`);
     
     // Schedule reminder for each configured time
@@ -43,7 +44,7 @@ export const scheduleRemindersForTask = async (task) => {
       const reminderTime = new Date(taskDateTime.getTime() - minutesBefore * 60 * 1000);
       
       // Only schedule if reminder time is in the future
-      if (reminderTime > new Date()) {
+      if (reminderTime > moment().tz('Asia/Jakarta').toDate()) {
         const reminder = await reminderModel.createScheduledReminder(
           userId,
           task.id,
@@ -94,7 +95,7 @@ export const scheduleDueReminder = async (task) => {
     const reminderTime = new Date(dueDateTime.getTime() - 24 * 60 * 60 * 1000); // 1 day before
     
     // Only schedule if reminder time is in the future
-    if (reminderTime > new Date()) {
+    if (reminderTime > moment().tz('Asia/Jakarta').toDate()) {
       const reminder = await reminderModel.createScheduledReminder(
         userId,
         task.id,
@@ -125,7 +126,7 @@ export const processPendingReminders = async () => {
   try {
     console.log('🔔 Processing pending reminders...');
     
-    const now = new Date();
+    const now = moment().tz('Asia/Jakarta').toDate();
     const pendingReminders = await reminderModel.getPendingReminders(now);
     
     if (pendingReminders.length === 0) {
@@ -207,7 +208,7 @@ export const processPendingReminders = async () => {
             messageTitle: `Reminder: ${reminder.title}`,
             messageBody: `Sent ${reminder.minutes_before} minutes before`,
             scheduledAt: reminder.reminder_time,
-            sentAt: new Date(),
+            sentAt: moment().tz('Asia/Jakarta').toDate(),
             deliveryStatus: 'sent',
             telegramMessageId: result.messageId
           });
@@ -262,8 +263,8 @@ export const sendDailySummaries = async () => {
     console.log('📊 Sending daily summaries...');
     
     // Get current time (hour:minute)
-    const now = new Date();
-    const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:00`;
+    const now = moment().tz('Asia/Jakarta');
+    const currentTime = now.format('HH:mm:ss');
     
     const users = await reminderModel.getUsersForDailySummary(currentTime);
     
@@ -283,7 +284,7 @@ export const sendDailySummaries = async () => {
     for (const user of users) {
       try {
         // Get today's tasks for user
-        const today = new Date().toISOString().split('T')[0];
+        const today = moment().tz('Asia/Jakarta').format('YYYY-MM-DD');
         const tasks = await taskModel.getTasksByUser(user.id, {
           limit: 100,
           offset: 0
