@@ -2,7 +2,10 @@ import cron from 'node-cron';
 import * as routineService from '../services/routineService.js';
 import * as routineModel from '../models/routineModel.js';
 import * as reminderService from '../services/reminderService.js';
+import * as transactionService from '../services/transactionService.js';
+import * as telegramService from '../services/telegramService.js';
 import { pool } from '../config/db.js';
+import moment from 'moment-timezone';
 
 /**
  * Scheduler Service
@@ -149,6 +152,224 @@ export const startDailyRoutineScheduler = () => {
   console.log('   🌏 Timezone: Asia/Jakarta');
 };
 
+// ============================================
+// FINANCIAL SUMMARY SCHEDULER
+// ============================================
+
+/**
+ * Send daily financial summary to all users with Telegram connected
+ * Runs every day at 21:00 (9 PM) - end of day summary
+ */
+const sendDailyFinancialSummaryToAllUsers = async () => {
+  try {
+    console.log('💰 Starting daily financial summary distribution...');
+    
+    // Get all users with telegram configured
+    const users = await transactionService.getUsersForFinancialNotification();
+    
+    if (users.length === 0) {
+      console.log('   📝 No users with Telegram configured for financial notifications');
+      return {
+        success: true,
+        message: 'No users to notify',
+        sent: 0
+      };
+    }
+    
+    console.log(`   👥 Found ${users.length} users for daily financial summary`);
+    
+    const today = moment().tz('Asia/Jakarta').format('YYYY-MM-DD');
+    const todayFormatted = moment().tz('Asia/Jakarta').format('DD MMMM YYYY');
+    
+    let sent = 0;
+    let failed = 0;
+    
+    for (const user of users) {
+      try {
+        // Get daily summary for the user
+        const summary = await transactionService.getDailyFinancialSummaryService(
+          user.user_id,
+          today
+        );
+        
+        // Send notification via Telegram
+        const result = await telegramService.sendDailyFinancialSummary(
+          user.telegram_chat_id,
+          user.name,
+          summary,
+          todayFormatted
+        );
+        
+        if (result.success) {
+          sent++;
+          console.log(`   ✅ Sent daily financial summary to ${user.name}`);
+        } else {
+          failed++;
+          console.error(`   ❌ Failed to send to ${user.name}: ${result.error}`);
+        }
+        
+      } catch (error) {
+        failed++;
+        console.error(`   ❌ Error processing ${user.name}:`, error.message);
+      }
+    }
+    
+    console.log(`💰 Daily financial summary complete: ${sent} sent, ${failed} failed`);
+    
+    return {
+      success: true,
+      sent,
+      failed,
+      total: users.length
+    };
+    
+  } catch (error) {
+    console.error('❌ Critical error in daily financial summary:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+};
+
+/**
+ * Send monthly financial summary to all users with Telegram connected
+ * Runs on the 1st of every month at 08:00 - previous month summary
+ */
+const sendMonthlyFinancialSummaryToAllUsers = async () => {
+  try {
+    console.log('📊 Starting monthly financial summary distribution...');
+    
+    // Get all users with telegram configured
+    const users = await transactionService.getUsersForFinancialNotification();
+    
+    if (users.length === 0) {
+      console.log('   📝 No users with Telegram configured for financial notifications');
+      return {
+        success: true,
+        message: 'No users to notify',
+        sent: 0
+      };
+    }
+    
+    console.log(`   👥 Found ${users.length} users for monthly financial summary`);
+    
+    // Get previous month
+    const now = moment().tz('Asia/Jakarta');
+    const lastMonth = now.clone().subtract(1, 'month');
+    const year = lastMonth.year();
+    const month = lastMonth.month() + 1; // moment months are 0-indexed
+    const monthYear = lastMonth.format('MMMM YYYY');
+    
+    let sent = 0;
+    let failed = 0;
+    
+    for (const user of users) {
+      try {
+        // Get monthly summary for the user
+        const summary = await transactionService.getMonthlyFinancialSummaryService(
+          user.user_id,
+          year,
+          month
+        );
+        
+        // Send notification via Telegram
+        const result = await telegramService.sendMonthlyFinancialSummary(
+          user.telegram_chat_id,
+          user.name,
+          summary,
+          monthYear
+        );
+        
+        if (result.success) {
+          sent++;
+          console.log(`   ✅ Sent monthly financial summary to ${user.name}`);
+        } else {
+          failed++;
+          console.error(`   ❌ Failed to send to ${user.name}: ${result.error}`);
+        }
+        
+      } catch (error) {
+        failed++;
+        console.error(`   ❌ Error processing ${user.name}:`, error.message);
+      }
+    }
+    
+    console.log(`📊 Monthly financial summary complete: ${sent} sent, ${failed} failed`);
+    
+    return {
+      success: true,
+      sent,
+      failed,
+      total: users.length
+    };
+    
+  } catch (error) {
+    console.error('❌ Critical error in monthly financial summary:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+};
+
+/**
+ * Start financial summary scheduler
+ * - Daily summary: Every day at 21:00 (9 PM)
+ * - Monthly summary: Every 1st of the month at 08:00
+ */
+export const startFinancialSummaryScheduler = () => {
+  // Daily financial summary at 9 PM every day
+  const dailyFinancialSummary = cron.schedule('0 21 * * *', async () => {
+    try {
+      await sendDailyFinancialSummaryToAllUsers();
+    } catch (error) {
+      console.error('❌ Daily financial summary scheduler error:', error);
+    }
+  }, {
+    scheduled: false,
+    timezone: "Asia/Jakarta"
+  });
+  
+  // Monthly financial summary at 8 AM on the 1st of every month
+  const monthlyFinancialSummary = cron.schedule('0 8 1 * *', async () => {
+    try {
+      await sendMonthlyFinancialSummaryToAllUsers();
+    } catch (error) {
+      console.error('❌ Monthly financial summary scheduler error:', error);
+    }
+  }, {
+    scheduled: false,
+    timezone: "Asia/Jakarta"
+  });
+  
+  // Start the scheduled tasks
+  dailyFinancialSummary.start();
+  monthlyFinancialSummary.start();
+  
+  scheduledTasks.push(
+    { name: 'daily-financial-summary', task: dailyFinancialSummary, cron: '0 21 * * *' },
+    { name: 'monthly-financial-summary', task: monthlyFinancialSummary, cron: '0 8 1 * *' }
+  );
+  
+  console.log('💰 Financial summary scheduler started:');
+  console.log('   📅 Daily summary at 21:00 (9 PM)');
+  console.log('   🗓️ Monthly summary at 08:00 on 1st of each month');
+  console.log('   🌏 Timezone: Asia/Jakarta');
+};
+
+// Manual trigger for testing daily financial summary
+export const triggerDailyFinancialSummary = async () => {
+  console.log('🔧 Manual trigger: Daily financial summary');
+  return await sendDailyFinancialSummaryToAllUsers();
+};
+
+// Manual trigger for testing monthly financial summary
+export const triggerMonthlyFinancialSummary = async () => {
+  console.log('🔧 Manual trigger: Monthly financial summary');
+  return await sendMonthlyFinancialSummaryToAllUsers();
+};
+
 // Start smart reminder scheduler
 export const startReminderScheduler = () => {
   // Process pending reminders every minute
@@ -280,6 +501,7 @@ export const initializeScheduler = () => {
   try {
     startDailyRoutineScheduler();
     startReminderScheduler();
+    startFinancialSummaryScheduler();
     startWeeklyCleanup();
     
     console.log('✅ Scheduler System initialized successfully');
@@ -310,9 +532,12 @@ export const shutdownScheduler = () => {
 export default {
   startDailyRoutineScheduler,
   startReminderScheduler,
+  startFinancialSummaryScheduler,
   stopDailyRoutineScheduler,
   getSchedulerStatus,
   triggerDailyGeneration,
+  triggerDailyFinancialSummary,
+  triggerMonthlyFinancialSummary,
   initializeScheduler,
   shutdownScheduler,
   generateDailyRoutinesForAllUsers

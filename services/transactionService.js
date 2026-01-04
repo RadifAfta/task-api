@@ -365,3 +365,239 @@ export const getTransactionSummaryService = async (userId, dateFrom, dateTo) => 
     throw error;
   }
 };
+
+/**
+ * Gets detailed daily financial summary for a user
+ * @param {string} userId - User ID from authentication
+ * @param {string} date - Date to get summary for (YYYY-MM-DD format)
+ * @returns {Promise<Object>} Detailed daily summary with categories
+ */
+export const getDailyFinancialSummaryService = async (userId, date) => {
+  try {
+    if (!userId) {
+      throw new Error("User ID is required");
+    }
+
+    // Get basic summary for the day
+    const basicQuery = `
+      SELECT
+        type,
+        SUM(amount) as total,
+        COUNT(*) as count
+      FROM transactions
+      WHERE user_id = $1 AND DATE(transaction_date) = $2
+      GROUP BY type
+    `;
+
+    const basicResult = await pool.query(basicQuery, [userId, date]);
+
+    let totalIncome = 0;
+    let totalExpense = 0;
+    let incomeCount = 0;
+    let expenseCount = 0;
+
+    basicResult.rows.forEach(row => {
+      if (row.type === 'income') {
+        totalIncome = parseFloat(row.total);
+        incomeCount = parseInt(row.count);
+      } else if (row.type === 'expense') {
+        totalExpense = parseFloat(row.total);
+        expenseCount = parseInt(row.count);
+      }
+    });
+
+    // Get top expense categories for the day
+    const categoryQuery = `
+      SELECT category, SUM(amount) as total, COUNT(*) as count
+      FROM transactions
+      WHERE user_id = $1 AND DATE(transaction_date) = $2 AND type = 'expense'
+      GROUP BY category
+      ORDER BY total DESC
+      LIMIT 5
+    `;
+
+    const categoryResult = await pool.query(categoryQuery, [userId, date]);
+
+    return {
+      totalIncome,
+      totalExpense,
+      balance: totalIncome - totalExpense,
+      transactionCount: incomeCount + expenseCount,
+      topCategories: categoryResult.rows.map(row => ({
+        category: row.category,
+        total: parseFloat(row.total),
+        count: parseInt(row.count)
+      }))
+    };
+  } catch (error) {
+    console.error("Error in getDailyFinancialSummaryService:", error);
+    throw error;
+  }
+};
+
+/**
+ * Gets detailed monthly financial summary for a user
+ * @param {string} userId - User ID from authentication
+ * @param {number} year - Year (e.g., 2026)
+ * @param {number} month - Month (1-12)
+ * @returns {Promise<Object>} Detailed monthly summary with categories and comparison
+ */
+export const getMonthlyFinancialSummaryService = async (userId, year, month) => {
+  try {
+    if (!userId) {
+      throw new Error("User ID is required");
+    }
+
+    // Calculate date range for the month
+    const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+    const endDate = new Date(year, month, 0); // Last day of month
+    const endDateStr = `${year}-${String(month).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`;
+    const daysInMonth = endDate.getDate();
+
+    // Get basic summary for the month
+    const basicQuery = `
+      SELECT
+        type,
+        SUM(amount) as total,
+        COUNT(*) as count
+      FROM transactions
+      WHERE user_id = $1 
+        AND transaction_date >= $2 
+        AND transaction_date <= $3
+      GROUP BY type
+    `;
+
+    const basicResult = await pool.query(basicQuery, [userId, startDate, endDateStr]);
+
+    let totalIncome = 0;
+    let totalExpense = 0;
+    let incomeCount = 0;
+    let expenseCount = 0;
+
+    basicResult.rows.forEach(row => {
+      if (row.type === 'income') {
+        totalIncome = parseFloat(row.total);
+        incomeCount = parseInt(row.count);
+      } else if (row.type === 'expense') {
+        totalExpense = parseFloat(row.total);
+        expenseCount = parseInt(row.count);
+      }
+    });
+
+    // Get top income categories
+    const incomeCategoryQuery = `
+      SELECT category, SUM(amount) as total, COUNT(*) as count
+      FROM transactions
+      WHERE user_id = $1 
+        AND transaction_date >= $2 
+        AND transaction_date <= $3 
+        AND type = 'income'
+      GROUP BY category
+      ORDER BY total DESC
+      LIMIT 5
+    `;
+
+    const incomeCategoryResult = await pool.query(incomeCategoryQuery, [userId, startDate, endDateStr]);
+
+    // Get top expense categories
+    const expenseCategoryQuery = `
+      SELECT category, SUM(amount) as total, COUNT(*) as count
+      FROM transactions
+      WHERE user_id = $1 
+        AND transaction_date >= $2 
+        AND transaction_date <= $3 
+        AND type = 'expense'
+      GROUP BY category
+      ORDER BY total DESC
+      LIMIT 5
+    `;
+
+    const expenseCategoryResult = await pool.query(expenseCategoryQuery, [userId, startDate, endDateStr]);
+
+    // Get last month's data for comparison
+    const lastMonth = month === 1 ? 12 : month - 1;
+    const lastMonthYear = month === 1 ? year - 1 : year;
+    const lastMonthStart = `${lastMonthYear}-${String(lastMonth).padStart(2, '0')}-01`;
+    const lastMonthEnd = new Date(lastMonthYear, lastMonth, 0);
+    const lastMonthEndStr = `${lastMonthYear}-${String(lastMonth).padStart(2, '0')}-${String(lastMonthEnd.getDate()).padStart(2, '0')}`;
+
+    const lastMonthQuery = `
+      SELECT
+        type,
+        SUM(amount) as total
+      FROM transactions
+      WHERE user_id = $1 
+        AND transaction_date >= $2 
+        AND transaction_date <= $3
+      GROUP BY type
+    `;
+
+    const lastMonthResult = await pool.query(lastMonthQuery, [userId, lastMonthStart, lastMonthEndStr]);
+
+    let lastMonthExpense = 0;
+    lastMonthResult.rows.forEach(row => {
+      if (row.type === 'expense') {
+        lastMonthExpense = parseFloat(row.total);
+      }
+    });
+
+    // Calculate comparison
+    let comparisonWithLastMonth = null;
+    if (lastMonthExpense > 0) {
+      const expenseDifference = ((totalExpense - lastMonthExpense) / lastMonthExpense) * 100;
+      comparisonWithLastMonth = {
+        lastMonthExpense,
+        currentMonthExpense: totalExpense,
+        expenseDifference
+      };
+    }
+
+    return {
+      totalIncome,
+      totalExpense,
+      balance: totalIncome - totalExpense,
+      transactionCount: incomeCount + expenseCount,
+      avgDailyExpense: totalExpense / daysInMonth,
+      topIncomeCategories: incomeCategoryResult.rows.map(row => ({
+        category: row.category,
+        total: parseFloat(row.total),
+        count: parseInt(row.count)
+      })),
+      topExpenseCategories: expenseCategoryResult.rows.map(row => ({
+        category: row.category,
+        total: parseFloat(row.total),
+        count: parseInt(row.count)
+      })),
+      comparisonWithLastMonth
+    };
+  } catch (error) {
+    console.error("Error in getMonthlyFinancialSummaryService:", error);
+    throw error;
+  }
+};
+
+/**
+ * Gets all users with telegram configured for financial notifications
+ * @returns {Promise<Array>} Array of users with telegram config
+ */
+export const getUsersForFinancialNotification = async () => {
+  try {
+    const query = `
+      SELECT 
+        u.id as user_id,
+        u.name,
+        u.email,
+        utc.telegram_chat_id
+      FROM users u
+      JOIN user_telegram_config utc ON u.id = utc.user_id
+      WHERE utc.is_verified = true AND utc.is_active = true
+      ORDER BY u.id
+    `;
+
+    const result = await pool.query(query);
+    return result.rows;
+  } catch (error) {
+    console.error("Error in getUsersForFinancialNotification:", error);
+    throw error;
+  }
+};

@@ -6386,6 +6386,182 @@ Don't forget to complete it! ⏰
   }
 };
 
+// Send daily financial summary
+export const sendDailyFinancialSummary = async (chatId, userName, summary, date) => {
+  if (!bot) {
+    console.error('❌ Telegram Bot not initialized');
+    return { success: false, error: 'Bot not initialized' };
+  }
+
+  try {
+    const { totalIncome, totalExpense, balance, transactionCount, topCategories } = summary;
+    
+    // Format currency
+    const formatCurrency = (amount) => {
+      return new Intl.NumberFormat('id-ID', {
+        style: 'currency',
+        currency: 'IDR',
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0
+      }).format(amount);
+    };
+
+    const balanceEmoji = balance >= 0 ? '📈' : '📉';
+    const balanceStatus = balance >= 0 ? 'Surplus' : 'Deficit';
+
+    let message = `
+🌅 *Ringkasan Keuangan Harian*
+📅 *${date}*
+
+Halo *${userName}*! Berikut ringkasan keuangan Anda hari ini:
+
+💰 *Pemasukan:* ${formatCurrency(totalIncome)}
+💸 *Pengeluaran:* ${formatCurrency(totalExpense)}
+${balanceEmoji} *Saldo:* ${formatCurrency(balance)} (${balanceStatus})
+📊 *Total Transaksi:* ${transactionCount}
+`;
+
+    if (topCategories && topCategories.length > 0) {
+      message += '\n📁 *Top Kategori Pengeluaran:*\n';
+      topCategories.slice(0, 3).forEach((cat, idx) => {
+        const icons = ['🥇', '🥈', '🥉'];
+        message += `${icons[idx]} ${cat.category}: ${formatCurrency(cat.total)}\n`;
+      });
+    }
+
+    if (transactionCount === 0) {
+      message = `
+🌅 *Ringkasan Keuangan Harian*
+📅 *${date}*
+
+Halo *${userName}*! 📝
+
+Belum ada transaksi hari ini.
+Jangan lupa catat pemasukan dan pengeluaranmu! 💪
+
+Gunakan /income dan /expense untuk mencatat transaksi.
+`;
+    }
+
+    message += '\n_Tetap kelola keuanganmu dengan bijak!_ 💪';
+
+    const result = await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+
+    return {
+      success: true,
+      messageId: result.message_id
+    };
+
+  } catch (error) {
+    console.error('Error sending daily financial summary:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+};
+
+// Send monthly financial summary
+export const sendMonthlyFinancialSummary = async (chatId, userName, summary, monthYear) => {
+  if (!bot) {
+    console.error('❌ Telegram Bot not initialized');
+    return { success: false, error: 'Bot not initialized' };
+  }
+
+  try {
+    const { 
+      totalIncome, 
+      totalExpense, 
+      balance, 
+      transactionCount, 
+      avgDailyExpense,
+      topIncomeCategories,
+      topExpenseCategories,
+      comparisonWithLastMonth 
+    } = summary;
+    
+    // Format currency
+    const formatCurrency = (amount) => {
+      return new Intl.NumberFormat('id-ID', {
+        style: 'currency',
+        currency: 'IDR',
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0
+      }).format(amount);
+    };
+
+    const balanceEmoji = balance >= 0 ? '📈' : '📉';
+    const balanceStatus = balance >= 0 ? 'Surplus' : 'Deficit';
+
+    let message = `
+📊 *Ringkasan Keuangan Bulanan*
+🗓️ *${monthYear}*
+
+Halo *${userName}*! Berikut laporan keuangan bulan lalu:
+
+━━━━━━━━━━━━━━━━━━━━
+💰 *RINGKASAN UTAMA*
+━━━━━━━━━━━━━━━━━━━━
+📥 *Total Pemasukan:* ${formatCurrency(totalIncome)}
+📤 *Total Pengeluaran:* ${formatCurrency(totalExpense)}
+${balanceEmoji} *Saldo Akhir:* ${formatCurrency(balance)} (${balanceStatus})
+📊 *Jumlah Transaksi:* ${transactionCount}
+💵 *Rata-rata Pengeluaran/Hari:* ${formatCurrency(avgDailyExpense || 0)}
+`;
+
+    if (topIncomeCategories && topIncomeCategories.length > 0) {
+      message += '\n━━━━━━━━━━━━━━━━━━━━\n📥 *TOP SUMBER PEMASUKAN*\n━━━━━━━━━━━━━━━━━━━━\n';
+      topIncomeCategories.slice(0, 3).forEach((cat, idx) => {
+        const icons = ['🥇', '🥈', '🥉'];
+        message += `${icons[idx]} ${cat.category}: ${formatCurrency(cat.total)}\n`;
+      });
+    }
+
+    if (topExpenseCategories && topExpenseCategories.length > 0) {
+      message += '\n━━━━━━━━━━━━━━━━━━━━\n📤 *TOP PENGELUARAN*\n━━━━━━━━━━━━━━━━━━━━\n';
+      topExpenseCategories.slice(0, 5).forEach((cat, idx) => {
+        const icons = ['🔴', '🟠', '🟡', '🟢', '🔵'];
+        message += `${icons[idx]} ${cat.category}: ${formatCurrency(cat.total)}\n`;
+      });
+    }
+
+    if (comparisonWithLastMonth) {
+      const diff = comparisonWithLastMonth.expenseDifference;
+      const diffEmoji = diff <= 0 ? '✅' : '⚠️';
+      const diffText = diff <= 0 ? 'lebih hemat' : 'lebih boros';
+      message += `\n━━━━━━━━━━━━━━━━━━━━\n📈 *PERBANDINGAN BULAN LALU*\n━━━━━━━━━━━━━━━━━━━━\n${diffEmoji} Pengeluaran ${Math.abs(diff).toFixed(1)}% ${diffText}\n`;
+    }
+
+    if (transactionCount === 0) {
+      message = `
+📊 *Ringkasan Keuangan Bulanan*
+🗓️ *${monthYear}*
+
+Halo *${userName}*! 📝
+
+Belum ada transaksi bulan lalu.
+Mulai catat keuanganmu di bulan ini! 💪
+`;
+    }
+
+    message += '\n_Terus semangat mengelola keuanganmu!_ 🚀';
+
+    const result = await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+
+    return {
+      success: true,
+      messageId: result.message_id
+    };
+
+  } catch (error) {
+    console.error('Error sending monthly financial summary:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+};
+
 // Get bot instance
 export const getBot = () => bot;
 
@@ -6424,6 +6600,8 @@ export default {
   sendDailySummary,
   sendRoutineGenerationNotice,
   sendOverdueAlert,
+  sendDailyFinancialSummary,
+  sendMonthlyFinancialSummary,
   getBot,
   isBotInitialized,
   shutdownTelegramBot
