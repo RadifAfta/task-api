@@ -186,7 +186,7 @@ ${user.bot_name || 'Assistant'} presents your daily task overview:
       });
     }
 
-    message += '\n\n💪 Keep up the great work!';
+    message += '\n\n💪 Your Majesty is conquering the day splendidly!';
 
     return {
       text: message,
@@ -255,7 +255,7 @@ ${user.bot_name || 'Assistant'} presents your daily task overview:
     const { task } = result.data;
 
     return {
-      text: `✅ *Task Completed!*\n\nGreat job completing:\n~~${task.title}~~\n\nKeep up the momentum! 🎉`,
+      text: `✅ *Task Completed!*\n\nMagnificent work, My Lord! You have conquered:\n~~${task.title}~~\n\nYour productivity reigns supreme! 🎉`,
       options: { parse_mode: 'Markdown' }
     };
   }
@@ -276,22 +276,22 @@ ${user.bot_name || 'Assistant'} presents your daily task overview:
     const successMessage = `
 ✅ *Verification Successful!*
 
-Welcome aboard, ${userConfig.name}! 🎉
+Greetings, My Lord ${userConfig.name}! 🎉
 
-Your Telegram account is now linked to LifePath.
+Your royal Telegram account is now linked to LifePath.
 
-*What's Next?*
+*At Your Service, My Lord:*
 • Configure your reminder preferences in the app
-• I'll send you reminders before your tasks start
-• Get daily summaries of your tasks
-• Receive notifications for routine generation
+• I shall remind you before your tasks commence
+• Receive daily summaries of your royal duties
+• Get notifications when routines are generated
 
 *Quick Tips:*
 • Use /status to check your connection
 • Use /help for more information
 • Manage settings in the LifePath app
 
-Let's make your day productive! 💪
+I am honored to serve Your Majesty! 💪
     `;
 
     return {
@@ -314,7 +314,7 @@ Let's make your day productive! 💪
     const { user } = result.data;
 
     return {
-      text: `✅ *Login Successful!*\n\nWelcome back, ${user.name}!\n\nYour Telegram account is now connected to LifePath.`,
+      text: `✅ *Login Successful!*\n\nWelcome back, My Lord ${user.name}!\n\nYour royal Telegram account is now connected to LifePath. I am at your service!`,
       options: { parse_mode: 'Markdown' }
     };
   }
@@ -333,7 +333,7 @@ Let's make your day productive! 💪
     const { user } = result.data;
 
     return {
-      text: `🚪 *Logged Out Successfully*\n\nGoodbye, ${user.name}!\n\nYour Telegram account has been disconnected from LifePath.`,
+      text: `🚪 *Logged Out Successfully*\n\nFarewell, My Lord ${user.name}!\n\nYour royal Telegram account has been disconnected from LifePath. May your journey be blessed!`,
       options: { parse_mode: 'Markdown' }
     };
   }
@@ -354,7 +354,7 @@ Let's make your day productive! 💪
     const statusMessage = `
 ✅ *Connection Status*
 
-${config.bot_name || 'Assistant'} here with your account status report:
+${config.bot_name || 'Assistant'} here with your account status report, My Lord:
 
 *Account:* ${config.name}
 *Email:* ${config.email}
@@ -369,7 +369,7 @@ ${config.bot_name || 'Assistant'} here with your account status report:
 
 *Quiet Hours:* ${config.quiet_hours_enabled ? `🌙 ${config.quiet_hours_start} - ${config.quiet_hours_end}` : '❌ Disabled'}
 
-Manage your settings in the LifePath app! 📱
+Manage your settings in the LifePath app, My Lord! 📱
     `;
 
     return {
@@ -393,7 +393,7 @@ Manage your settings in the LifePath app! 📱
 
     if (transactions.length === 0) {
       return {
-        text: `💰 *${user.bot_name || 'Assistant'} Presents Your Financial Records*\n\n${user.bot_name || 'Assistant'} reports that you have no transaction records yet.\n\nStart tracking your finances with /addtransaction or use quick commands!`,
+        text: `💰 *${user.bot_name || 'Assistant'} Presents Your Financial Records*\n\n${user.bot_name || 'Assistant'} reports that you have no transaction records yet, My Lord.\n\nStart tracking your finances with /addtransaction or use quick commands!`,
         options: {
           parse_mode: 'Markdown',
           reply_markup: {
@@ -477,7 +477,7 @@ Manage your settings in the LifePath app! 📱
 
     if (transactions.length === 0) {
       return {
-        text: `📅 *${user.bot_name || 'Assistant'} Presents Today's Financial Records*\n\n${user.bot_name || 'Assistant'} reports that you have no transaction records for today.\n\nStart tracking your finances with /addtransaction or use quick commands!`,
+        text: `📅 *${user.bot_name || 'Assistant'} Presents Today's Financial Records*\n\n${user.bot_name || 'Assistant'} reports that you have no transaction records for today, My Lord.\n\nStart tracking your finances with /addtransaction or use quick commands!`,
         options: {
           parse_mode: 'Markdown',
           reply_markup: {
@@ -623,7 +623,7 @@ Manage your settings in the LifePath app! 📱
     const dateDisplay = new Date(transaction.transaction_date).toLocaleDateString('id-ID');
 
     const successMessage = `
-✅ *Transaction Recorded!*
+✅ *Transaction Recorded, My Lord!*
 
 ${emoji} *${transaction.type.toUpperCase()}*
 💰 *Amount:* Rp ${amountFormatted}
@@ -631,9 +631,9 @@ ${emoji} *${transaction.type.toUpperCase()}*
 📄 *Description:* ${transaction.description}
 📅 *Date:* ${dateDisplay}
 
-Your financial record has been saved successfully!
+Your royal financial record has been saved successfully!
 
-Use /transactions to view all records.
+Use /transactions to view all records, My Lord.
     `;
 
     return {

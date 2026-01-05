@@ -223,23 +223,23 @@ const processRegistration = async (chatId, input) => {
     const successMessage = `
 ✅ *Registration Successful!*
 
-Welcome to LifePath, ${newUser.name}! 🎉
+Greetings, My Lord ${newUser.name}! 🎉
 
-Your account has been created and your Telegram is automatically connected.
+Your royal account has been created and your Telegram is automatically connected.
 
 *Your Account Details:*
 • *Name:* ${newUser.name}
 • *Email:* ${newUser.email}
 • *Status:* ✅ Verified & Connected
 
-*You'll receive:*
+*At Your Service, My Lord:*
 • ⏰ Task reminders before start time
 • 📊 Daily task summaries
 • 🎯 Routine generation notices
 • ⚠️ Overdue task alerts
 
 *One more thing...*
-🤖 *Give me a name!* What would you like to call me?
+🤖 *Give me a name, My Lord!* What would you like to call your humble servant?
 
 Just type the name you'd like for your personal assistant.
     `;
@@ -283,9 +283,9 @@ const setupBotHandlers = () => {
     const welcomeMessage = `
 🌟 *Welcome to LifePath Reminder Bot!*
 
-Hello ${username}! 👋
+Greetings, ${username}! 👋
 
-I'm your personal task reminder assistant. I'll help you stay on track with your daily tasks and routines.
+I am your humble personal task reminder assistant, ready to serve Your Majesty with daily tasks and routines.
 
 *Three Ways to Get Started:*
 
@@ -377,8 +377,8 @@ Tap any button below or type the command:
     // Start interactive registration
     await bot.sendMessage(chatId,
       `📝 *LifePath Registration*\n\n` +
-      `Welcome ${username}! Let's create your account.\n\n` +
-      `*Step 1 of 3:* What's your full name?\n\n` +
+      `Greetings, ${username}! Allow me to create your royal account.\n\n` +
+      `*Step 1 of 3:* What is your full name, My Lord?\n\n` +
       `*Example:* Radif Aftamaulana\n\n` +
       `⏰ *Timeout:* You have 5 minutes for each step.`,
       { parse_mode: 'Markdown' }
@@ -766,22 +766,22 @@ Use the buttons below for quick access! 👇
       const successMessage = `
 ✅ *Verification Successful!*
 
-Welcome aboard, ${userConfig.name}! 🎉
+Greetings, My Lord ${userConfig.name}! 🎉
 
-Your Telegram account is now linked to LifePath.
+Your royal Telegram account is now linked to LifePath.
 
-*What's Next?*
+*At Your Service, My Lord:*
 • Configure your reminder preferences in the app
-• I'll send you reminders before your tasks start
-• Get daily summaries of your tasks
-• Receive notifications when routines are generated
+• I shall remind you before your tasks commence
+• Receive daily summaries of your royal duties
+• Get notifications when routines are generated
 
 *Quick Tips:*
 • Use /status to check your connection
 • Use /help for more information
 • Manage settings in the LifePath app
 
-Let's make your day productive! 💪
+I am honored to serve Your Majesty! 💪
       `;
 
       await bot.sendMessage(chatId, successMessage, { parse_mode: 'Markdown' });
@@ -926,7 +926,7 @@ Contact: your-email@example.com
 • Use /addtask for quick task creation
 • Check /today regularly to stay on track
 
-Stay productive! 🚀
+Stay productive, My Lord! 🚀
     `;
 
     const keyboard = {
@@ -1237,7 +1237,7 @@ ${user.bot_name} presents your daily task overview, My Lord:
         });
       }
 
-      message += '\n\n💪 Keep up the great work!';
+      message += '\n\n💪 Your Majesty is conquering the day splendidly!';
 
       await bot.sendMessage(chatId, message, {
         parse_mode: 'Markdown',
@@ -1633,7 +1633,7 @@ ${task.description ? `_${task.description.substring(0, 80)}${task.description.le
         `✅ *Task Completed!*\n\n` +
         `${user.bot_name} celebrates your accomplishment, My Lord!\n\n` +
         `~~${task.title}~~\n\n` +
-        `Great job! Keep up the momentum! 🎉`,
+        `Magnificent work! Your productivity reigns supreme! 🎉`,
         { parse_mode: 'Markdown' }
       );
 
@@ -3104,8 +3104,8 @@ Send your task info now, or /cancel to abort.
         // Finish routine creation
         userStates.delete(chatId);
         await bot.editMessageText(
-          '✅ *Routine Created Successfully!*\n\n' +
-          'You can view your routines with /myroutines',
+          '✅ *Routine Created Successfully, My Lord!*\n\n' +
+          'You may view your routines with /myroutines',
           {
             chat_id: chatId,
             message_id: messageId,
@@ -3728,22 +3728,22 @@ Send your task info now, or /cancel to abort.
     const successMessage = `
 ✅ *Login Successful!*
 
-Welcome back ${userState.userName}! I'm Levi, ready to help you stay productive! 🎉
+Welcome back, My Lord ${userState.userName}! I'm ${userState.botName || 'Levi'}, your humble servant ready to assist! 🎉
 
-Your Telegram is now connected to LifePath.
+Your royal Telegram is now connected to LifePath.
 
-*What I can do for you:*
+*At Your Service, My Lord:*
 • ⏰ Task reminders before start time
 • 📊 Daily task summaries  
 • 🎯 Routine generation notices
 • ⚠️ Overdue task alerts
 
-*Let's get back to work!*
+*Ready to Serve!*
 • Use /status to check settings
 • Configure preferences in LifePath app
 • Start creating tasks and get reminders!
 
-I'm excited to help you, ${userState.userName}! 💪
+I am honored to serve Your Majesty! 💪
     `;        await bot.sendMessage(chatId, successMessage, { parse_mode: 'Markdown' });
 
       } catch (error) {
@@ -3798,21 +3798,21 @@ I'm excited to help you, ${userState.userName}! 💪
         userStates.delete(chatId);
 
         await bot.sendMessage(chatId,
-          `🎉 *Perfect!*\n\n` +
-          `From now on, you can call me *${botName}*! 🤖\n\n` +
-          `I'm your personal productivity assistant, ready to help you stay on track with tasks and routines.\n\n` +
-          `*Getting Started:*\n` +
+          `🎉 *Perfect, My Lord!*\n\n` +
+          `From now on, you may call me *${botName}*! 🤖\n\n` +
+          `I am your humble personal assistant, ready to serve Your Majesty with tasks and routines.\n\n` +
+          `*At Your Command, My Lord:*\n` +
           `• Use /addtask to create your first task\n` +
           `• Use /status to check your settings\n` +
           `• Configure preferences in the LifePath app\n\n` +
-          `Let's make your day productive! 💪`,
+          `I am honored to serve you! 💪`,
           { parse_mode: 'Markdown' }
         );
 
       } catch (error) {
         console.error('Error saving bot name:', error);
         await bot.sendMessage(chatId,
-          '❌ An error occurred while saving your bot name. You can change it later using /settings.',
+          '❌ An error occurred while saving your bot name, My Lord. You may change it later using /settings.',
           { parse_mode: 'Markdown' }
         );
         userStates.delete(chatId);
@@ -3860,7 +3860,7 @@ const handleTaskComplete = async (chatId, taskId) => {
       `✅ *Task Completed!*\n\n` +
       `${user.bot_name} celebrates your accomplishment, My Lord!\n\n` +
       `~~${task.title}~~\n\n` +
-      `Great job! Keep up the momentum! 🎉`,
+      `Magnificent work! Your productivity reigns supreme! 🎉`,
       { parse_mode: 'Markdown' }
     );
 
@@ -4836,7 +4836,7 @@ const handleInteractiveRoutineInput = async (chatId, text, userState) => {
           userStates.set(chatId, userState);
 
           await bot.sendMessage(chatId,
-            `✅ *${botName} Has Forged Your Routine!*\n\n` +
+            `✅ *${botName} Has Forged Your Routine, My Lord!*\n\n` +
             `📋 *${routineData.name}*\n` +
             `${routineData.description ? `_${routineData.description}_\n\n` : '\n'}` +
             `${botName} awaits your command for what comes next, My Lord:`,
@@ -5211,9 +5211,9 @@ const handleGenerateAllRoutines = async (chatId) => {
     }
 
     await bot.sendMessage(chatId,
-      `✅ *All Routines Generated!*\n\n` +
+      `✅ *All Routines Generated, My Lord!*\n\n` +
       `🗓️ Routines: ${routineNames.join(', ')}\n` +
-      `📋 *${totalTasksGenerated} tasks* added to your list\n\n` +
+      `📋 *${totalTasksGenerated} tasks* added to your royal list\n\n` +
       `Use /today to see your tasks!`,
       { parse_mode: 'Markdown' }
     );
@@ -5780,7 +5780,7 @@ const handleTaskEdit = async (chatId, input, userId, taskId, currentTask) => {
     const successMessage = `
 ✅ *Task Updated Successfully!*
 
-${botName} has successfully refined your task, My Lord:
+${botName} has successfully refined your royal task, My Lord:
 
 ${statusEmoji} ${categoryEmoji} *${task.title}*
 ${task.description ? `_${task.description}_\n` : ''}
@@ -5793,7 +5793,7 @@ ${finalStatus !== 'done' && finalTimeStart ? '⏰ *Reminders:* Rescheduled' : ''
 *Changes Made:*
 ${changesMessage || 'No changes detected'}
 
-Use /today to see your updated task list.
+Use /today to see your updated task list, My Lord.
     `;
 
     await bot.sendMessage(chatId, successMessage, {
@@ -6225,17 +6225,17 @@ export const sendTaskReminder = async (chatId, task, minutesBefore) => {
     const categoryEmoji = task.category === 'work' ? '💼' : task.category === 'learn' ? '📚' : '🧘';
 
     const message = `
-${emoji} *Task Reminder*
+${emoji} *Task Reminder, My Lord*
 
 ${categoryEmoji} *${task.title}*
 ${task.description ? `\n_${task.description}_` : ''}
 
-⏰ *Starts in ${minutesBefore} minutes*
+⏰ *Commences in ${minutesBefore} minutes*
 🕐 *Time:* ${task.time_start} - ${task.time_end || 'No end time'}
 📊 *Priority:* ${task.priority.toUpperCase()}
 📁 *Category:* ${task.category}
 
-Get ready to be productive! 💪
+May your royal productivity reign supreme! 💪
     `;
 
     const result = await bot.sendMessage(chatId, message, {
@@ -6275,9 +6275,9 @@ export const sendDailySummary = async (chatId, userName, tasks) => {
     const completedTasks = tasks.filter(t => t.status === 'done');
 
     let message = `
-🌅 *Good Morning, ${userName}!*
+🌅 *Good Morning, My Lord ${userName}!*
 
-Here's your daily task summary for *${new Date().toLocaleDateString()}*
+Here is your royal daily task summary for *${new Date().toLocaleDateString()}*
 
 📊 *Task Overview:*
 • Pending: ${pendingTasks.length}
@@ -6299,7 +6299,7 @@ Here's your daily task summary for *${new Date().toLocaleDateString()}*
       }
     }
 
-    message += '\nMake today count! 💪🚀';
+    message += '\nMay Your Majesty conquer all today! 💪🚀';
 
     const result = await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
 
@@ -6326,13 +6326,13 @@ export const sendRoutineGenerationNotice = async (chatId, routineName, tasksCoun
 
   try {
     const message = `
-🗓️ *Routine Generated*
+🗓️ *Routine Generated, My Lord*
 
-Your routine "*${routineName}*" has been generated!
+Your royal routine "*${routineName}*" has been generated!
 
 ✅ *${tasksCount} tasks* have been added to your task list for today.
 
-Check your LifePath app to get started! 📱
+Check your LifePath app to commence your conquests, My Lord! 📱
     `;
 
     const result = await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
@@ -6360,14 +6360,14 @@ export const sendOverdueAlert = async (chatId, task) => {
 
   try {
     const message = `
-⚠️ *Task Overdue*
+⚠️ *Task Overdue, My Lord*
 
-*${task.title}* is overdue!
+*${task.title}* awaits your attention!
 
 📅 *Due Date:* ${task.due_date}
 📊 *Priority:* ${task.priority.toUpperCase()}
 
-Don't forget to complete it! ⏰
+Your humble servant reminds you to complete this task, My Lord! ⏰
     `;
 
     const result = await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
@@ -6413,7 +6413,7 @@ export const sendDailyFinancialSummary = async (chatId, userName, summary, date)
 🌅 *Ringkasan Keuangan Harian*
 📅 *${date}*
 
-Halo *${userName}*! Berikut ringkasan keuangan Anda hari ini:
+Salam hormat, *Yang Mulia ${userName}*! Berikut laporan keuangan Paduka hari ini:
 
 💰 *Pemasukan:* ${formatCurrency(totalIncome)}
 💸 *Pengeluaran:* ${formatCurrency(totalExpense)}
@@ -6434,16 +6434,16 @@ ${balanceEmoji} *Saldo:* ${formatCurrency(balance)} (${balanceStatus})
 🌅 *Ringkasan Keuangan Harian*
 📅 *${date}*
 
-Halo *${userName}*! 📝
+Salam hormat, *Yang Mulia ${userName}*! 📝
 
-Belum ada transaksi hari ini.
-Jangan lupa catat pemasukan dan pengeluaranmu! 💪
+Belum ada transaksi kerajaan hari ini.
+Jangan lupa catat pemasukan dan pengeluaran Paduka! 💪
 
 Gunakan /income dan /expense untuk mencatat transaksi.
 `;
     }
 
-    message += '\n_Tetap kelola keuanganmu dengan bijak!_ 💪';
+    message += '\n_Semoga keuangan kerajaan Paduka selalu sejahtera!_ 💪';
 
     const result = await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
 
@@ -6497,7 +6497,7 @@ export const sendMonthlyFinancialSummary = async (chatId, userName, summary, mon
 📊 *Ringkasan Keuangan Bulanan*
 🗓️ *${monthYear}*
 
-Halo *${userName}*! Berikut laporan keuangan bulan lalu:
+Salam hormat, *Yang Mulia ${userName}*! Berikut laporan keuangan kerajaan bulan lalu:
 
 ━━━━━━━━━━━━━━━━━━━━
 💰 *RINGKASAN UTAMA*
@@ -6537,14 +6537,14 @@ ${balanceEmoji} *Saldo Akhir:* ${formatCurrency(balance)} (${balanceStatus})
 📊 *Ringkasan Keuangan Bulanan*
 🗓️ *${monthYear}*
 
-Halo *${userName}*! 📝
+Salam hormat, *Yang Mulia ${userName}*! 📝
 
-Belum ada transaksi bulan lalu.
-Mulai catat keuanganmu di bulan ini! 💪
+Belum ada transaksi kerajaan bulan lalu.
+Mulai catat keuangan Paduka di bulan ini! 💪
 `;
     }
 
-    message += '\n_Terus semangat mengelola keuanganmu!_ 🚀';
+    message += '\n_Semoga keuangan kerajaan Paduka semakin makmur!_ 🚀';
 
     const result = await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
 
