@@ -15,7 +15,14 @@ Advanced Task Management API with REST endpoints, Telegram Bot integration, Rout
 - Task categorization and prioritization
 - Due date management
 
-### 🔄 Routine Management ✨
+### 💰 Financial Management ✨
+- Income and expense tracking
+- Transaction categorization
+- Financial summaries and reports
+- Date-range based analytics
+- Budget monitoring
+
+### �🔄 Routine Management ✨
 - Create and manage routine templates
 - Auto-generate daily tasks from routines
 - Interactive routine creation with task templates
@@ -144,7 +151,9 @@ Swagger docs: `http://localhost:3000/api-docs`
 │   ├── authController.js   # Authentication logic
 │   ├── reminderController.js # Reminder management
 │   ├── routineController.js # Routine management
-│   └── taskController.js   # Task CRUD operations
+│   ├── taskController.js   # Task CRUD operations
+│   ├── telegramController.js # Telegram bot operations
+│   ├── transactionController.js # Transaction management ✨
 ├── docs/                   # Documentation files
 ├── middlewares/
 │   ├── authMiddleware.js   # JWT verification
@@ -156,7 +165,8 @@ Swagger docs: `http://localhost:3000/api-docs`
 │   ├── reminderModel.js   # Reminder data models
 │   ├── routineModel.js    # Routine data models
 │   └── taskModel.js       # Task data models
-│   └── userModel.js       # User data models
+│   ├── transactionModel.js # Transaction data models ✨
+│   ├── userModel.js       # User data models
 ├── public/               # Static files
 ├── routes/
 │   ├── adminRoute.js     # Admin endpoints
@@ -165,13 +175,17 @@ Swagger docs: `http://localhost:3000/api-docs`
 │   ├── reminderRoute.js  # Reminder endpoints
 │   ├── routineRoute.js   # Routine endpoints
 │   ├── taskRoute.js      # Task endpoints
-│   └── telegramRoute.js  # Telegram bot endpoints
+│   ├── telegramRoute.js  # Telegram bot endpoints
+│   └── transactionRoute.js # Transaction endpoints ✨
 ├── scripts/             # Utility scripts
 ├── services/
 │   ├── reminderService.js # Reminder business logic
 │   ├── routineService.js  # Routine generation logic
 │   ├── schedulerService.js # Task scheduling
-│   └── telegramService.js # Telegram bot logic ✨
+│   ├── taskService.js     # Task CRUD operations
+│   ├── telegramService.js # Telegram bot logic ✨
+│   ├── transactionService.js # Transaction management ✨
+│   └── userService.js     # User management
 ├── utils/
 │   └── pagination.js    # Pagination utilities
 └── README.md
@@ -208,6 +222,14 @@ Base URL: `http://localhost:3000/api`
 - `PUT /reminders/:id` - Update reminder
 - `DELETE /reminders/:id` - Delete reminder
 
+### Transactions (Protected - Requires Bearer Token) ✨
+- `GET /transactions` - Get all user transactions (with pagination)
+- `POST /transactions` - Create new transaction (income/expense)
+- `GET /transactions/:id` - Get transaction by ID
+- `PUT /transactions/:id` - Update transaction
+- `DELETE /transactions/:id` - Delete transaction
+- `GET /transactions/summary` - Get financial summary and analytics
+
 ### Admin (Admin Only - Requires Bearer Token)
 - `GET /admin/users` - List all users
 - `GET /admin/stats` - System statistics
@@ -238,6 +260,21 @@ curl -X POST http://localhost:3000/api/tasks \
     "time_start": "09:00",
     "time_end": "17:00"
   }'
+
+# Create transaction (income)
+curl -X POST http://localhost:3000/api/transactions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -d '{
+    "type": "income",
+    "amount": 5000000,
+    "category": "salary",
+    "description": "Monthly salary"
+  }'
+
+# Get financial summary
+curl -X GET "http://localhost:3000/api/transactions/summary?dateFrom=2024-01-01&dateTo=2024-12-31" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
 ```
 
 ## 🤖 Telegram Bot Commands ✨
@@ -270,11 +307,18 @@ Bot tersedia dengan command-command interaktif untuk kemudahan penggunaan:
 /myroutines - Lihat & kelola routine templates ✨
 /generateroutine - Generate daily routine ✨
 
+# Financial Management ✨
+/transactions - View all transactions 💰
+/transactions_today - View today's transactions 📅
+/transaction_summary - Financial summary 📊
+
 # Status & Info
 /status - Cek status koneksi
 ```
 
-### ✨ Recent Updates (November 2025)
+### ✨ Recent Updates (January 2026)
+- **Financial Management System**: Complete income/expense tracking with analytics ✨
+- **Transaction Commands**: New Telegram commands for financial management
 - **Enhanced Routine Management**: UI yang lebih informatif dengan detail lengkap
 - **Auto-Generate Feature**: Opsi generate routine langsung setelah pembuatan
 - **Interactive Buttons**: Semua command menggunakan button untuk kemudahan
@@ -287,6 +331,7 @@ Bot tersedia dengan command-command interaktif untuk kemudahan penggunaan:
 - ✅ Button-based navigation
 - ✅ Smart task categorization
 - ✅ Routine template management
+- ✅ Financial transaction tracking ✨
 - ✅ Automated reminders
 - ✅ Daily summaries
 
@@ -309,6 +354,26 @@ Bot tersedia dengan command-command interaktif untuk kemudahan penggunaan:
 - `routine_templates`: Template routine (name, description, is_active)
 - `routine_template_tasks`: Tasks dalam routine template
 - `routine_generations`: History generation routine
+
+## 💰 Financial Management System ✨
+
+### Fitur Utama
+- **Transaction Tracking**: Record income and expenses with categories
+- **Financial Analytics**: View summaries, balances, and spending patterns
+- **Date Range Filtering**: Analyze finances over specific periods
+- **Category Management**: Organize transactions by custom categories
+- **Real-time Updates**: Instant financial status via Telegram bot
+
+### Cara Penggunaan
+1. Record transactions: Via API atau Telegram bot commands
+2. View transactions: `/transactions` untuk semua, `/transactions_today` untuk hari ini
+3. Check summary: `/transaction_summary` untuk ringkasan keuangan
+4. Monitor spending: Lihat breakdown income vs expense
+
+### Database Schema
+- `transactions`: User transactions (type, amount, category, description, date)
+- Transaction types: income, expense
+- Automatic balance calculations
 
 ## ⏰ Scheduler & Reminder System
 
@@ -424,15 +489,18 @@ Tambahkan lisensi sesuai kebutuhan (mis. MIT).
 - **Database connection failed** → Cek DB credentials di .env
 - **Telegram bot tidak merespon** → Verifikasi TELEGRAM_BOT_TOKEN
 - **Routine generation failed** → Cek apakah routine memiliki tasks aktif
+- **Transaction creation failed** → Pastikan amount > 0 dan type valid (income/expense) ✨
 
 ### Telegram Bot Issues
 - **Bot tidak start** → Pastikan TELEGRAM_BOT_TOKEN valid
 - **Commands tidak muncul** → Restart server setelah mengubah token
 - **Button tidak bekerja** → Cek callback query handlers di telegramService.js
+- **Transaction commands not working** → Pastikan transactionService.js ter-import dengan benar ✨
 
 ### Database Issues
 - **Migration failed** → Jalankan migration scripts secara berurutan
 - **Missing tables** → Cek apakah semua migration sudah dijalankan
+- **Transaction table missing** → Jalankan migration add_transactions_table.sql ✨
 - **Connection timeout** → Verifikasi DB_HOST, DB_PORT, dan credentials
 
 ### Scheduler Issues
