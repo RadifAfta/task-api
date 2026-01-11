@@ -1,10 +1,6 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import {
-  findUserByEmail,
-  createUser,
-  findUserById,
-} from "../models/userModel.js";
+import UserService from "../services/userService.js";
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN;
@@ -17,7 +13,7 @@ export const register = async (req, res) => {
 
   try {
     // Cek apakah email sudah terdaftar
-    const existingUser = await findUserByEmail(email);
+    const existingUser = await UserService.findUserByEmail(email);
     if (existingUser) {
       return res.status(400).json({ message: "Email already registered" });
     }
@@ -28,15 +24,21 @@ export const register = async (req, res) => {
     // Kirim role hanya kalau disediakan dan valid
     const validRoles = ["user", "admin"];
     const userRole =
-      role && validRoles.includes(role.toLowerCase()) ? role.toLowerCase() : undefined;
+      role && validRoles.includes(role.toLowerCase()) ? role.toLowerCase() : "user";
 
-    // Simpan user baru ke database (kalau role tidak dikirim, DB akan isi default = 'user')
-    const newUser = await createUser({
+    // Simpan user baru ke database via service
+    const result = await UserService.createUser({
       name,
       email,
       passwordHash: hashedPassword,
       role: userRole
     });
+
+    if (!result.success) {
+      return res.status(500).json({ message: result.error || "Failed to create user" });
+    }
+
+    const newUser = result.user;
 
     res.status(201).json({
       message: "✅ User registered successfully",
@@ -59,7 +61,7 @@ export const login = async (req, res) => {
   const { email, password } = req.body;
 
   try {
-    const user = await findUserByEmail(email);
+    const user = await UserService.findUserByEmail(email);
     if (!user) return res.status(400).json({ message: "Invalid email or password" });
 
     const isMatch = await bcrypt.compare(password, user.password_hash);
@@ -85,7 +87,10 @@ export const login = async (req, res) => {
 // PROFILE (protected)
 export const getProfile = async (req, res) => {
   try {
-    const user = await findUserById(req.user.id);
+    const user = await UserService.findUserById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
     res.json({ user });
   } catch (error) {
     res.status(500).json({ message: "Server error" });

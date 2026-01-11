@@ -1,10 +1,4 @@
-import {
-  createTask,
-  getTasksByUser,
-  getTaskById,
-  updateTask,
-  deleteTask,
-} from "../models/taskModel.js";
+import TaskService from "../services/taskService.js";
 import { createPaginationResponse, validatePaginationParams } from "../utils/pagination.js";
 import * as reminderService from "../services/reminderService.js";
 
@@ -16,35 +10,25 @@ export const addTask = async (req, res) => {
 
     if (!title) return res.status(400).json({ message: "Title is required" });
 
-    const newTask = await createTask(
-      userId,
+    const taskData = {
       title,
-      description || "",
-      status || "pending",
-      priority || "medium",
-      category || "work",
-      dueDate || null,
-      timeStart || null,
-      timeEnd || null
-    );
+      description: description || "",
+      status: status || "pending",
+      priority: priority || "medium",
+      category: category || "work",
+      dueDate: dueDate || null,
+      time_start: timeStart || null,
+      time_end: timeEnd || null
+    };
 
-    // Schedule reminders for the new task
-    if (timeStart) {
-      await reminderService.scheduleRemindersForTask({
-        ...newTask,
-        time_start: timeStart,
-        due_date: dueDate
-      });
+    const result = await TaskService.createTask(userId, taskData);
+
+    if (!result.success) {
+      return res.status(500).json({ message: result.error || "Failed to create task" });
     }
 
-    if (dueDate) {
-      await reminderService.scheduleDueReminder({
-        ...newTask,
-        due_date: dueDate
-      });
-    }
-
-    res.status(201).json({ message: "✅ Task created successfully", task: newTask });
+    // Schedule reminders for the new task (already handled in service but can add extra logic here if needed)
+    res.status(201).json({ message: "✅ Task created successfully", task: result.task });
   } catch (error) {
     console.error("Error creating task:", error.message);
     res.status(500).json({ message: "Server error" });
@@ -60,8 +44,8 @@ export const getAllTasks = async (req, res) => {
     // Validasi dan ambil parameter pagination
     const { page, limit, offset } = validatePaginationParams(req.query);
 
-    // Ambil data dengan pagination
-    const result = await getTasksByUser(userId, { 
+    // Ambil data dengan pagination via service
+    const result = await TaskService.getTasksByUser(userId, { 
       status, 
       category,
       search, 
@@ -69,6 +53,10 @@ export const getAllTasks = async (req, res) => {
       limit, 
       offset 
     });
+
+    if (!result.success) {
+      return res.status(500).json({ message: result.error || "Failed to fetch tasks" });
+    }
 
     // Buat response dengan pagination metadata
     const response = createPaginationResponse(
@@ -88,9 +76,13 @@ export const getAllTasks = async (req, res) => {
 // GET SINGLE TASK
 export const getTask = async (req, res) => {
   try {
-    const task = await getTaskById(req.params.id, req.user.id);
-    if (!task) return res.status(404).json({ message: "Task not found" });
-    res.json(task);
+    const result = await TaskService.getTaskById(req.params.id, req.user.id);
+    
+    if (!result.success) {
+      return res.status(404).json({ message: "Task not found" });
+    }
+
+    res.json(result.task);
   } catch (error) {
     res.status(500).json({ message: "Server error" });
   }
@@ -99,9 +91,13 @@ export const getTask = async (req, res) => {
 // UPDATE TASK
 export const editTask = async (req, res) => {
   try {
-    const updated = await updateTask(req.params.id, req.user.id, req.body);
-    if (!updated) return res.status(404).json({ message: "Task not found" });
-    res.json({ message: "✅ Task updated", task: updated });
+    const result = await TaskService.updateTask(req.params.id, req.user.id, req.body);
+    
+    if (!result.success) {
+      return res.status(404).json({ message: result.error || "Task not found" });
+    }
+
+    res.json({ message: "✅ Task updated", task: result.task });
   } catch (error) {
     res.status(500).json({ message: "Server error" });
   }
@@ -110,9 +106,13 @@ export const editTask = async (req, res) => {
 // DELETE TASK
 export const removeTask = async (req, res) => {
   try {
-    const deleted = await deleteTask(req.params.id, req.user.id);
-    if (!deleted) return res.status(404).json({ message: "Task not found" });
-    res.json({ message: "🗑️ Task deleted successfully", task: deleted });
+    const result = await TaskService.deleteTask(req.params.id, req.user.id);
+    
+    if (!result.success) {
+      return res.status(404).json({ message: result.error || "Task not found" });
+    }
+
+    res.json({ message: "🗑️ Task deleted successfully", task: result.task });
   } catch (error) {
     res.status(500).json({ message: "Server error" });
   }

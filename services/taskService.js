@@ -68,11 +68,11 @@ class TaskService {
 
   /**
    * Get a single task by ID
-   * @param {string} userId - User ID
    * @param {string} taskId - Task ID
+   * @param {string} userId - User ID
    * @returns {Object} Task result
    */
-  static async getTaskById(userId, taskId) {
+  static async getTaskById(taskId, userId) {
     try {
       // Use model to get task
       const task = await getTaskByIdModel(taskId, userId);
@@ -99,7 +99,35 @@ class TaskService {
   }
 
   /**
-   * Get user tasks
+   * Get tasks by user with pagination
+   * @param {string} userId - User ID
+   * @param {Object} options - Query options (status, category, search, page, limit, offset)
+   * @returns {Object} Tasks with pagination info
+   */
+  static async getTasksByUser(userId, options = {}) {
+    try {
+      // Use model to get tasks with pagination
+      const result = await getTasksByUserModel(userId, options);
+
+      return {
+        success: true,
+        tasks: result.tasks,
+        total: result.total
+      };
+
+    } catch (error) {
+      console.error('Error getting tasks by user:', error);
+      return {
+        success: false,
+        error: error.message,
+        tasks: [],
+        total: 0
+      };
+    }
+  }
+
+  /**
+   * Get user tasks (for compatibility)
    * @param {string} userId - User ID
    * @param {Object} filters - Optional filters
    * @returns {Array} User tasks

@@ -6,6 +6,8 @@ import {
   getAllTasksAdmin,
   updateUserRole,
   deleteUser,
+  getSystemStats,
+  cleanupOldData,
 } from "../controllers/adminController.js";
 import {
   validateUserId,
@@ -22,6 +24,12 @@ router.get("/users", getAllUsers);
 
 // 🔹 Semua task dari seluruh user
 router.get("/tasks", getAllTasksAdmin);
+
+// 🔹 System statistics
+router.get("/stats", getSystemStats);
+
+// 🔹 Cleanup old data
+router.post("/cleanup", cleanupOldData);
 
 // 🔹 Ubah role user (user ⇄ admin)
 router.put(

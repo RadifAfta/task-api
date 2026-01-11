@@ -3893,7 +3893,7 @@ const handleTaskEditStart = async (chatId, taskId) => {
 
     // Get task using task service
     const taskService = await import('../services/taskService.js');
-    const taskResult = await taskService.default.getTaskById(user.user_id, taskId);
+    const taskResult = await taskService.default.getTaskById(taskId, user.user_id);
 
     if (!taskResult.success) {
       client.release();
@@ -4046,7 +4046,7 @@ const handleEditField = async (chatId, taskId, field, promptMessage, buttonType 
 
     // Import task service and get task
     const taskService = await import('../services/taskService.js');
-    const result = await taskService.default.getTaskById(user.user_id, taskId);
+    const result = await taskService.default.getTaskById(taskId, user.user_id);
 
     if (!result.success) {
       await bot.sendMessage(chatId, '❌ Task not found');
@@ -4415,7 +4415,7 @@ const handleTaskDeleteConfirm = async (chatId, messageId, taskId) => {
 
     // Import task service and get task
     const taskService = await import('../services/taskService.js');
-    const result = await taskService.default.getTaskById(user.user_id, taskId);
+    const result = await taskService.default.getTaskById(taskId, user.user_id);
 
     if (!result.success) {
       await bot.sendMessage(chatId, '❌ Task not found');
@@ -5744,7 +5744,7 @@ const handleTaskEdit = async (chatId, input, userId, taskId, currentTask) => {
 
     // Import task service and update task
     const taskService = await import('../services/taskService.js');
-    const result = await taskService.default.updateTask(userId, taskId, updateData);
+    const result = await taskService.default.updateTask(taskId, userId, updateData);
 
     if (!result.success) {
       await bot.sendMessage(chatId, `❌ Error updating task: ${result.error}`);

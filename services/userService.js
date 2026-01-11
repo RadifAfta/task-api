@@ -302,6 +302,7 @@ class UserService {
    * @param {string} userData.name - User name
    * @param {string} userData.email - User email
    * @param {string} userData.passwordHash - Password hash
+   * @param {string} userData.role - User role (optional)
    * @returns {Object} User creation result
    */
   static async createUser(userData) {
@@ -311,7 +312,7 @@ class UserService {
         name: userData.name,
         email: userData.email,
         passwordHash: userData.passwordHash,
-        role: 'user'
+        role: userData.role || 'user'
       });
 
       return {
@@ -324,6 +325,130 @@ class UserService {
         success: false,
         error: error.message,
         user: null
+      };
+    }
+  }
+
+  /**
+   * Find user by email
+   * @param {string} email - User email
+   * @returns {Object} User or null
+   */
+  static async findUserByEmail(email) {
+    try {
+      const user = await findUserByEmailModel(email);
+      return user;
+    } catch (error) {
+      console.error('Error finding user by email:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Find user by ID
+   * @param {string} userId - User ID
+   * @returns {Object} User or null
+   */
+  static async findUserById(userId) {
+    try {
+      const client = await pool.connect();
+      const result = await client.query(
+        'SELECT id, name, email, role, created_at FROM users WHERE id = $1',
+        [userId]
+      );
+      client.release();
+
+      return result.rows.length > 0 ? result.rows[0] : null;
+    } catch (error) {
+      console.error('Error finding user by ID:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get all users (Admin)
+   * @returns {Array} List of users
+   */
+  static async getAllUsers() {
+    try {
+      const result = await pool.query(
+        "SELECT id, name, email, role, created_at FROM users ORDER BY created_at DESC"
+      );
+
+      return {
+        success: true,
+        users: result.rows,
+        count: result.rowCount
+      };
+    } catch (error) {
+      console.error('Error getting all users:', error);
+      return {
+        success: false,
+        error: error.message,
+        users: []
+      };
+    }
+  }
+
+  /**
+   * Update user role (Admin)
+   * @param {string} userId - User ID
+   * @param {string} role - New role
+   * @returns {Object} Update result
+   */
+  static async updateUserRole(userId, role) {
+    try {
+      const result = await pool.query(
+        "UPDATE users SET role = $1 WHERE id = $2 RETURNING id, name, email, role",
+        [role, userId]
+      );
+
+      if (result.rowCount === 0) {
+        return {
+          success: false,
+          error: 'User not found',
+          user: null
+        };
+      }
+
+      return {
+        success: true,
+        user: result.rows[0]
+      };
+    } catch (error) {
+      console.error('Error updating user role:', error);
+      return {
+        success: false,
+        error: error.message,
+        user: null
+      };
+    }
+  }
+
+  /**
+   * Delete user (Admin)
+   * @param {string} userId - User ID
+   * @returns {Object} Delete result
+   */
+  static async deleteUser(userId) {
+    try {
+      const result = await pool.query("DELETE FROM users WHERE id = $1", [userId]);
+
+      if (result.rowCount === 0) {
+        return {
+          success: false,
+          error: 'User not found'
+        };
+      }
+
+      return {
+        success: true
+      };
+    } catch (error) {
+      console.error('Error deleting user:', error);
+      return {
+        success: false,
+        error: error.message
       };
     }
   }
