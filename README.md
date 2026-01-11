@@ -299,55 +299,83 @@ Swagger docs: `http://localhost:4000/api-docs`
 
 ## Struktur Project
 
+Project ini menggunakan **3-layer architecture** (Controller → Service → Model) untuk separation of concerns yang baik.
+
 ```
 ├── app.js                    # Entry point aplikasi
 ├── swagger.js               # OpenAPI/Swagger configuration
 ├── config/
 │   └── db.js               # Database connection
-├── controllers/
-│   ├── adminController.js  # Admin operations
-│   ├── authController.js   # Authentication logic
-│   ├── reminderController.js # Reminder management
-│   ├── routineController.js # Routine management
-│   ├── taskController.js   # Task CRUD operations
-│   ├── telegramController.js # Telegram bot operations
-│   ├── transactionController.js # Transaction management ✨
-├── docs/                   # Documentation files
+├── controllers/             # 🎮 HTTP Request Handlers
+│   ├── adminController.js  # Admin operations (uses AdminService)
+│   ├── authController.js   # Authentication logic (uses UserService)
+│   ├── reminderController.js # Reminder management (uses ReminderService)
+│   ├── routineController.js # Routine management (uses RoutineService)
+│   ├── taskController.js   # Task CRUD operations (uses TaskService)
+│   ├── telegramController.js # Telegram bot operations (uses multiple services)
+│   └── transactionController.js # Transaction management (uses TransactionService)
+├── services/                # 🧠 Business Logic Layer
+│   ├── adminService.js     # Admin operations & system stats
+│   ├── reminderService.js  # Reminder business logic
+│   ├── routineService.js   # Routine generation logic
+│   ├── schedulerService.js # Task scheduling & cron jobs
+│   ├── taskService.js      # Task CRUD & validations
+│   ├── telegramService.js  # Telegram bot logic
+│   ├── transactionService.js # Transaction management
+│   └── userService.js      # User management
+├── models/                  # 💾 Data Access Layer
+│   ├── reminderModel.js    # Reminder database operations
+│   ├── routineModel.js     # Routine database operations
+│   ├── taskModel.js        # Task database operations
+│   ├── transactionModel.js # Transaction database operations
+│   └── userModel.js        # User database operations
 ├── middlewares/
 │   ├── authMiddleware.js   # JWT verification
 │   ├── customErrorMiddleware.js # Error handling
 │   ├── roleMiddleware.js   # Role-based access
 │   └── validationMiddleware.js # Input validation
-├── migrations/            # Database migration scripts
-├── models/
-│   ├── reminderModel.js   # Reminder data models
-│   ├── routineModel.js    # Routine data models
-│   └── taskModel.js       # Task data models
-│   ├── transactionModel.js # Transaction data models ✨
-│   ├── userModel.js       # User data models
-├── public/               # Static files
 ├── routes/
-│   ├── adminRoute.js     # Admin endpoints
-│   ├── authRoute.js      # Auth endpoints
-│   ├── index.js          # Main router
-│   ├── reminderRoute.js  # Reminder endpoints
-│   ├── routineRoute.js   # Routine endpoints
-│   ├── taskRoute.js      # Task endpoints
-│   ├── telegramRoute.js  # Telegram bot endpoints
-│   └── transactionRoute.js # Transaction endpoints ✨
-├── scripts/             # Utility scripts
-├── services/
-│   ├── reminderService.js # Reminder business logic
-│   ├── routineService.js  # Routine generation logic
-│   ├── schedulerService.js # Task scheduling
-│   ├── taskService.js     # Task CRUD operations
-│   ├── telegramService.js # Telegram bot logic ✨
-│   ├── transactionService.js # Transaction management ✨
-│   └── userService.js     # User management
+│   ├── adminRoute.js       # Admin endpoints
+│   ├── authRoute.js        # Auth endpoints
+│   ├── index.js            # Main router
+│   ├── reminderRoute.js    # Reminder endpoints
+│   ├── routineRoute.js     # Routine endpoints
+│   ├── taskRoute.js        # Task endpoints
+│   ├── telegramRoute.js    # Telegram bot endpoints
+│   └── transactionRoute.js # Transaction endpoints
+├── docs/                    # 📚 Documentation
+│   ├── SERVICE_LAYER_ARCHITECTURE.md # Architecture guide
+│   └── ...                 # Other documentation
+├── migrations/              # Database migration scripts
+├── scripts/                 # Utility scripts
 ├── utils/
-│   └── pagination.js    # Pagination utilities
+│   ├── pagination.js        # Pagination utilities
+│   └── response.js          # Response formatters
+├── public/                  # Static files
 └── README.md
+
 ```
+
+### 🏗️ Architecture Pattern
+
+**Controllers** (HTTP Layer)
+- Handle HTTP requests/responses
+- Call service methods
+- Return formatted responses
+- **No direct database access**
+
+**Services** (Business Logic)
+- Business logic & data processing
+- Call models for database operations
+- Orchestrate multiple operations
+- Return standardized format: `{ success, data/error }`
+
+**Models** (Data Access)
+- Direct database queries
+- Data persistence
+- Return raw data
+
+**📖 Detailed Architecture Guide:** See [docs/SERVICE_LAYER_ARCHITECTURE.md](docs/SERVICE_LAYER_ARCHITECTURE.md)
 
 ---
 
