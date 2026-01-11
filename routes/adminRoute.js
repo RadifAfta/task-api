@@ -185,6 +185,120 @@ export default router;
 
 /**
  * @swagger
+ * /admin/stats:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Ambil statistik sistem (admin only)
+ *     description: Menampilkan statistik lengkap sistem termasuk jumlah user, task, routine, transaksi, dan breakdown task by status
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Statistik sistem berhasil diambil
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "✅ Statistik sistem"
+ *                 stats:
+ *                   type: object
+ *                   properties:
+ *                     totalUsers:
+ *                       type: integer
+ *                       example: 150
+ *                     totalTasks:
+ *                       type: integer
+ *                       example: 3420
+ *                     totalRoutines:
+ *                       type: integer
+ *                       example: 45
+ *                     totalTransactions:
+ *                       type: integer
+ *                       example: 890
+ *                     tasksByStatus:
+ *                       type: object
+ *                       properties:
+ *                         pending:
+ *                           type: integer
+ *                           example: 120
+ *                         in_progress:
+ *                           type: integer
+ *                           example: 85
+ *                         completed:
+ *                           type: integer
+ *                           example: 3215
+ *                     recentTasks:
+ *                       type: integer
+ *                       description: Task yang dibuat dalam 7 hari terakhir
+ *                       example: 42
+ *       403:
+ *         description: Access denied - Admin role required
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "❌ Gagal mengambil statistik sistem"
+ */
+
+/**
+ * @swagger
+ * /admin/cleanup:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Cleanup task completed yang sudah lama (admin only)
+ *     description: Menghapus task dengan status completed yang lebih lama dari jumlah hari yang ditentukan (default 90 hari)
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: days
+ *         schema:
+ *           type: integer
+ *           default: 90
+ *           minimum: 1
+ *         description: Hapus task completed yang lebih lama dari jumlah hari ini
+ *         example: 90
+ *     responses:
+ *       200:
+ *         description: Cleanup berhasil dilakukan
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "Deleted 450 old completed tasks"
+ *                 deletedCount:
+ *                   type: integer
+ *                   example: 450
+ *             example:
+ *               message: "Deleted 450 old completed tasks"
+ *               deletedCount: 450
+ *       403:
+ *         description: Access denied - Admin role required
+ *       500:
+ *         description: Server error saat cleanup
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "❌ Gagal melakukan cleanup"
+ */
+
+/**
+ * @swagger
  * /admin/users/{id}/role:
  *   put:
  *     tags: [Admin]
