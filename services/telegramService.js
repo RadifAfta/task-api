@@ -75,11 +75,7 @@ const setupBotCommands = async () => {
 
   try {
     await bot.setMyCommands([
-      { command: 'start', description: '🌟 Welcome message & setup guide' },
-      { command: 'register', description: '📝 Register new LifePath account' },
-      { command: 'login', description: '🔐 Login with email & password' },
-      { command: 'logout', description: '🚪 Disconnect from LifePath' },
-      { command: 'verify', description: '✅ Verify with code from app' },
+      { command: 'start', description: '🌟 Welcome message & auto setup' },
       { command: 'quick', description: '⚡ Quick task actions' },
       { command: 'addtask', description: '➕ Add task (interactive)' },
       { command: 'addroutine', description: '📋 Add routine (interactive)' },
@@ -94,7 +90,6 @@ const setupBotCommands = async () => {
       { command: 'transaction_summary', description: '📊 Financial summary' },
       { command: 'income', description: '📈 Quick income entry (/income amount)' },
       { command: 'expense', description: '📉 Quick expense entry (/expense amount)' },
-      { command: 'status', description: 'ℹ️ Check connection & settings' },
       { command: 'menu', description: '📋 Show command menu' }
     ]);
 
@@ -275,32 +270,76 @@ Just type the name you'd like for your personal assistant.
 const setupBotHandlers = () => {
   if (!bot) return;
 
-  // /start command - Initial greeting and verification
+  // /start command - Auto register/login and welcome
   bot.onText(/\/start/, async (msg) => {
     const chatId = msg.chat.id;
-    const username = msg.from.username || msg.from.first_name;
+    const telegramUsername = msg.from.username || null;
+    const firstName = msg.from.first_name || '';
+    const lastName = msg.from.last_name || '';
 
-    const welcomeMessage = `
+    console.log(`🚀 /start command received from chatId: ${chatId}, username: ${telegramUsername || 'none'}, name: ${firstName} ${lastName}`);
+
+    try {
+      // Import user service
+      const userService = await import('../services/userService.js');
+
+      // Auto register/login user
+      const autoRegisterResult = await userService.default.autoRegisterTelegramUser(
+        chatId,
+        telegramUsername,
+        firstName,
+        lastName
+      );
+
+      if (!autoRegisterResult.success) {
+        console.error('Auto register failed:', autoRegisterResult.error);
+        await bot.sendMessage(chatId,
+          '❌ *Connection Error*\n\n' +
+          'Failed to connect your account. Please try again later.',
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+
+      const user = autoRegisterResult.user;
+      const isNewUser = autoRegisterResult.isNewUser;
+
+      // Check if user already has a custom bot name (not default 'Levi')
+      const hasCustomBotName = user.bot_name && user.bot_name !== 'Levi';
+
+      if (isNewUser || !hasCustomBotName) {
+        // New user or user without custom bot name - ask for bot name
+        const askBotNameMessage = `
 🌟 *Welcome to LifePath Reminder Bot!*
 
-Greetings, ${username}! 👋
+Greetings, ${user.name}! 👋
 
-I am your humble personal task reminder assistant, ready to serve Your Majesty with daily tasks and routines.
+${isNewUser ? 'Your LifePath account has been created automatically! 🎉' : 'Welcome back! Let\'s personalize your experience.'}
 
-*Three Ways to Get Started:*
+🤖 *Give me a name, My Lord!* What would you like to call your humble servant?
 
-*Option 1: New User? Register Here!* 📝
-1. Use \`/register\` to create new account
-2. Set up your profile instantly
+Just type the name you'd like for your personal assistant (2-20 characters, letters/numbers/spaces only).
+        `;
 
-*Option 2: Connect from App* 📱
-1. Get verification code from LifePath app
-2. Use \`/verify <code>\` here to link
+        await bot.sendMessage(chatId, askBotNameMessage, { parse_mode: 'Markdown' });
 
-*Option 3: Connect from Telegram* 💬
-1. Use \`/login <email>\` command
-2. Enter your LifePath password when prompted
-3. Get instant verification!
+        // Set state for bot name input
+        userStates.set(chatId, {
+          action: 'awaiting_bot_name_after_start',
+          userId: user.user_id || user.id,
+          timestamp: Date.now()
+        });
+
+        return; // Don't show welcome message yet
+      }
+
+      // User already has bot name - show welcome message
+      const welcomeMessage = `
+🌟 *Welcome back to LifePath Reminder Bot!*
+
+Greetings, ${user.name}! 👋
+
+Welcome back! ${user.bot_name} is ready to serve you.
 
 *What You Can Do:*
 • ➕ Add tasks with \`/addtask\`
@@ -314,200 +353,61 @@ I am your humble personal task reminder assistant, ready to serve Your Majesty w
 
 *Quick Commands:*
 Tap any button below or type the command:
-    `;
+      `;
 
-    const keyboard = {
-      inline_keyboard: [
-        [
-          { text: '➕ Add Task', callback_data: 'cmd_addtask' },
-          { text: '📅 Today\'s Tasks', callback_data: 'cmd_today' }
-        ],
-        [
-          { text: '📝 Register', callback_data: 'cmd_register' },
-          { text: '🔐 Login', callback_data: 'cmd_login' }
-        ],
-        [
-          { text: '📊 Status', callback_data: 'cmd_status' },
-          { text: '📋 Menu', callback_data: 'cmd_menu' }
-        ],
-        [
-          { text: '💰 Transactions', callback_data: 'cmd_transactions' },
-          { text: '📈 Add Income', callback_data: 'cmd_income' }
-        ],
-        [
-          { text: '📉 Add Expense', callback_data: 'cmd_expense' },
-          { text: '📊 Summary', callback_data: 'cmd_transaction_summary' }
+      const keyboard = {
+        inline_keyboard: [
+          [
+            { text: '➕ Add Task', callback_data: 'cmd_addtask' },
+            { text: '📅 Today\'s Tasks', callback_data: 'cmd_today' }
+          ],
+          [
+            { text: '📋 My Tasks', callback_data: 'cmd_mytasks' },
+            { text: '📋 My Routines', callback_data: 'cmd_myroutines' }
+          ],
+          [
+            { text: '📊 Status', callback_data: 'cmd_status' },
+            { text: '📋 Menu', callback_data: 'cmd_menu' }
+          ],
+          [
+            { text: '💰 Transactions', callback_data: 'cmd_transactions' },
+            { text: '📈 Add Income', callback_data: 'cmd_income' }
+          ],
+          [
+            { text: '📉 Add Expense', callback_data: 'cmd_expense' },
+            { text: '📊 Summary', callback_data: 'cmd_transaction_summary' }
+          ]
         ]
-      ]
-    };
+      };
 
-    await bot.sendMessage(chatId, welcomeMessage, {
-      parse_mode: 'Markdown',
-      reply_markup: keyboard
-    });
-  });
-
-  // /register command - Interactive registration
-  bot.onText(/\/register$/, async (msg) => {
-    const chatId = msg.chat.id;
-    const username = msg.from.username || msg.from.first_name;
-
-    // Check if already registered
-    try {
-      const client = await pool.connect();
-      const existing = await client.query(
-        'SELECT user_id FROM user_telegram_config WHERE telegram_chat_id = $1',
-        [chatId]
-      );
-      client.release();
-
-      if (existing.rows.length > 0) {
-        await bot.sendMessage(chatId,
-          '❌ *Already Registered*\n\n' +
-          'This Telegram chat is already connected to a LifePath account.\n' +
-          'Use /login to connect a different account or /logout first.',
-          { parse_mode: 'Markdown' }
-        );
-        return;
-      }
-    } catch (error) {
-      console.error('Error checking registration:', error);
-    }
-
-    // Start interactive registration
-    await bot.sendMessage(chatId,
-      `📝 *LifePath Registration*\n\n` +
-      `Greetings, ${username}! Allow me to create your royal account.\n\n` +
-      `*Step 1 of 3:* What is your full name, My Lord?\n\n` +
-      `*Example:* Radif Aftamaulana\n\n` +
-      `⏰ *Timeout:* You have 5 minutes for each step.`,
-      { parse_mode: 'Markdown' }
-    );
-
-    // Set state for name input
-    userStates.set(chatId, {
-      action: 'awaiting_registration_name',
-      timestamp: Date.now()
-    });
-
-    // Set timeout
-    const timeout = setTimeout(async () => {
-      try {
-        await bot.sendMessage(chatId,
-          '⏰ *Registration Timeout*\n\n' +
-          'Registration session expired.\n' +
-          'Use /register to start again.',
-          { parse_mode: 'Markdown' }
-        );
-      } catch (error) {
-        console.error('Error sending timeout message:', error);
-      }
-      userStates.delete(chatId);
-    }, 5 * 60 * 1000); // 5 minutes
-
-    userStates.get(chatId).timeoutId = timeout;
-  });
-
-  // /register with direct input - for quick registration
-  bot.onText(/\/register (.+)/, async (msg) => {
-    const chatId = msg.chat.id;
-    const input = msg.text.substring(10).trim(); // Remove "/register "
-
-    console.log(`📝 Processing quick registration input: ${input}`);
-    await processRegistration(chatId, input);
-  });
-
-  // /logout command - Disconnect from LifePath
-  bot.onText(/\/logout/, async (msg) => {
-    const chatId = msg.chat.id;
-    const username = msg.from.username || msg.from.first_name;
-
-    try {
-      // Import user service
-      const userService = await import('../services/userService.js');
-
-      // Check if user is currently connected
-      const userResult = await userService.default.verifyUserByChatId(chatId);
-
-      if (!userResult.success) {
-        await bot.sendMessage(chatId,
-          '❌ *Not Connected*\n\n' +
-          `Hello ${username}! You are not currently connected to any LifePath account.\n\n` +
-          'Use /login or /register to connect your account.',
-          { parse_mode: 'Markdown' }
-        );
-        return;
-      }
-
-      const user = userResult.user;
-
-      // Confirm logout with user
-      const confirmMessage = await bot.sendMessage(chatId,
-        `🚪 *Confirm Logout*\n\n` +
-        `Are you sure you want to disconnect **${user.name}** (${user.email}) from this Telegram account?\n\n` +
-        `⚠️ *What will happen:*\n` +
-        `• You will stop receiving task reminders\n` +
-        `• You will stop receiving daily summaries\n` +
-        `• You can reconnect anytime with /login\n\n` +
-        `Tap the button below to confirm:`,
-        {
-          parse_mode: 'Markdown',
-          reply_markup: {
-            inline_keyboard: [
-              [
-                { text: '✅ Yes, Logout', callback_data: 'confirm_logout' },
-                { text: '❌ Cancel', callback_data: 'cancel_logout' }
-              ]
-            ]
-          }
-        }
-      );
-
-      // Store logout confirmation state
-      userStates.set(chatId, {
-        action: 'awaiting_logout_confirmation',
-        userId: user.user_id,
-        userName: user.name,
-        userEmail: user.email,
-        messageId: confirmMessage.message_id,
-        timestamp: Date.now()
+      await bot.sendMessage(chatId, welcomeMessage, {
+        parse_mode: 'Markdown',
+        reply_markup: keyboard
       });
 
-      console.log(`🚪 Logout confirmation sent for ${chatId} (${user.email})`);
-
-      // Set timeout for logout confirmation (1 minute)
-      const logoutTimeout = setTimeout(async () => {
-        try {
-          const currentState = userStates.get(chatId);
-          if (currentState && currentState.action === 'awaiting_logout_confirmation') {
-            await bot.editMessageText(
-              '⏰ *Logout Confirmation Timeout*\n\n' +
-              'Logout confirmation expired for security reasons.\n' +
-              'Use /logout again if you want to disconnect.',
-              {
-                chat_id: chatId,
-                message_id: currentState.messageId,
-                parse_mode: 'Markdown'
-              }
-            );
-            userStates.delete(chatId);
-          }
-        } catch (error) {
-          console.error('Error sending logout timeout message:', error);
-        }
-      }, 1 * 60 * 1000); // 1 minute
-
-      // Store timeout reference
-      userStates.get(chatId).timeoutId = logoutTimeout;
-
     } catch (error) {
-      console.error('Error in logout command:', error);
+      console.error('Error in /start command:', error);
       await bot.sendMessage(chatId,
-        '❌ An error occurred. Please try again.',
+        '❌ *Unexpected Error*\n\n' +
+        'Something went wrong. Please try again later.',
         { parse_mode: 'Markdown' }
       );
     }
   });
+
+  // /register command - Interactive registration
+  // /register command - Redirect to /start (auto register)
+  bot.onText(/\/register/, async (msg) => {
+    const chatId = msg.chat.id;
+    await bot.sendMessage(chatId,
+      '📝 *Registration Not Needed!*\n\n' +
+      'LifePath now uses auto registration. Just use /start and your account will be created automatically! 🎉',
+      { parse_mode: 'Markdown' }
+    );
+  });
+
+  // /logout command - Disconnect from LifePath
+
 
   // /menu command - Show command menu with buttons
   bot.onText(/\/menu/, async (msg) => {
@@ -594,70 +494,14 @@ Use the buttons below for quick access! 👇
   });
 
   // /login command - Interactive login
-  bot.onText(/\/login$/, async (msg) => {
+  // /login command - Redirect to /start (auto login)
+  bot.onText(/\/login/, async (msg) => {
     const chatId = msg.chat.id;
-    console.log(`🔐 Login command received from ${chatId}`);
-
-    // Check if already logged in
-    try {
-      // Import user service
-      const userService = await import('../services/userService.js');
-
-      // Check if already logged in
-      const loginCheck = await userService.default.checkLoginStatus(chatId);
-
-      if (loginCheck.isLoggedIn) {
-        await bot.sendMessage(chatId,
-          '✅ *Already Logged In*\n\n' +
-          'You are already connected to LifePath.\n' +
-          'Use /status to check your account or /logout to disconnect.',
-          { parse_mode: 'Markdown' }
-        );
-        return;
-      }
-    } catch (error) {
-      console.error('Error checking login status:', error);
-    }
-
-    // Start interactive login
     await bot.sendMessage(chatId,
-      `🔐 *LifePath Login*\n\n` +
-      `Please enter your LifePath email address:\n\n` +
-      `*Example:* john@example.com\n\n` +
-      `⏰ *Timeout:* You have 5 minutes.`,
+      '🔐 *Login Not Needed!*\n\n' +
+      'LifePath now uses auto login. Just use /start and you will be logged in automatically! 🎉',
       { parse_mode: 'Markdown' }
     );
-
-    // Set state for email input
-    userStates.set(chatId, {
-      action: 'awaiting_login_email',
-      timestamp: Date.now()
-    });
-
-    // Set timeout
-    const timeout = setTimeout(async () => {
-      try {
-        await bot.sendMessage(chatId,
-          '⏰ *Login Timeout*\n\n' +
-          'Login session expired.\n' +
-          'Use /login to try again.',
-          { parse_mode: 'Markdown' }
-        );
-      } catch (error) {
-        console.error('Error sending timeout message:', error);
-      }
-      userStates.delete(chatId);
-    }, 5 * 60 * 1000); // 5 minutes
-
-    userStates.get(chatId).timeoutId = timeout;
-  });
-
-  // /login with email - Direct login
-  bot.onText(/\/login (.+)/, async (msg) => {
-    const chatId = msg.chat.id;
-    const email = msg.text.substring(7).trim().toLowerCase(); // Remove "/login "
-
-    await processLogin(chatId, email);
   });
 
   // Process login with email
@@ -796,55 +640,7 @@ I am honored to serve Your Majesty! 💪
   });
 
   // /status command - Check connection status
-  bot.onText(/\/status/, async (msg) => {
-    const chatId = msg.chat.id;
 
-    try {
-      // Import user service
-      const userService = await import('../services/userService.js');
-
-      const statusResult = await userService.default.getUserStatus(chatId);
-
-      if (!statusResult.success) {
-        await bot.sendMessage(chatId,
-          '❌ *Not Connected*\n\n' +
-          'Your Telegram account is not linked to LifePath.\n' +
-          'Use /verify <code> to connect your account.',
-          { parse_mode: 'Markdown' }
-        );
-        return;
-      }
-
-      const config = statusResult.config;
-
-      const statusMessage = `
-✅ *Connection Status*
-
-${config.bot_name} here with your account status report, My Lord:
-
-*Account:* ${config.name}
-*Email:* ${config.email}
-*Verified:* ${config.is_verified ? '✅ Yes' : '❌ No'}
-*Active:* ${config.is_active ? '✅ Active' : '⏸️  Paused'}
-
-*Reminder Settings:*
-• Task Start Reminders: ${config.enable_task_start_reminder ? '✅' : '❌'}
-• Task Due Reminders: ${config.enable_task_due_reminder ? '✅' : '❌'}
-• Daily Summary: ${config.enable_daily_summary ? '✅' : '❌'}
-• Routine Notices: ${config.enable_routine_generation_notice ? '✅' : '❌'}
-
-*Quiet Hours:* ${config.quiet_hours_enabled ? `🌙 ${config.quiet_hours_start} - ${config.quiet_hours_end}` : '❌ Disabled'}
-
-Manage your settings in the LifePath app! 📱
-      `;
-
-      await bot.sendMessage(chatId, statusMessage, { parse_mode: 'Markdown' });
-
-    } catch (error) {
-      console.error('Error checking status:', error);
-      await bot.sendMessage(chatId, '❌ Error checking status. Please try again.');
-    }
-  });
 
   // /help command - Show help information
   bot.onText(/\/help/, async (msg) => {
@@ -3808,6 +3604,105 @@ I am honored to serve Your Majesty! 💪
           `I am honored to serve you! 💪`,
           { parse_mode: 'Markdown' }
         );
+
+      } catch (error) {
+        console.error('Error saving bot name:', error);
+        await bot.sendMessage(chatId,
+          '❌ An error occurred while saving your bot name, My Lord. You may change it later using /settings.',
+          { parse_mode: 'Markdown' }
+        );
+        userStates.delete(chatId);
+      }
+    } else if (userState.action === 'awaiting_bot_name_after_start') {
+      console.log(`✅ Processing bot name input after /start for user ${chatId}`);
+      const botName = text.trim();
+
+      // Validate bot name
+      if (botName.length < 2 || botName.length > 20) {
+        await bot.sendMessage(chatId,
+          '❌ *Invalid Bot Name*\n\n' +
+          'Bot name must be 2-20 characters long.\n' +
+          'Please try again.',
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+
+      // Check for valid characters (letters, numbers, spaces)
+      const botNameRegex = /^[a-zA-Z0-9\s]+$/;
+      if (!botNameRegex.test(botName)) {
+        await bot.sendMessage(chatId,
+          '❌ *Invalid Bot Name*\n\n' +
+          'Bot name can only contain letters, numbers, and spaces.\n' +
+          'Please try again.',
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+
+      // Save bot name to database
+      try {
+        const client = await pool.connect();
+        await client.query(`
+          UPDATE user_telegram_config
+          SET bot_name = $1, updated_at = CURRENT_TIMESTAMP
+          WHERE user_id = $2
+        `, [botName, userState.userId]);
+        client.release();
+
+        userStates.delete(chatId);
+
+        // Show welcome message after bot name is set
+        const welcomeMessage = `
+🎉 *Perfect, My Lord!*
+
+From now on, you may call me *${botName}*! 🤖
+
+I am your humble personal assistant, ready to serve Your Majesty with tasks and routines.
+
+*What You Can Do:*
+• ➕ Add tasks with \`/addtask\`
+• 📅 View today's tasks with \`/today\`
+• ⏰ Get automatic task reminders
+• 📊 Receive daily summaries
+• 🎯 Track your progress
+• 💰 Track finances with \`/income\` & \`/expense\`
+• 📈 View financial summaries with \`/transaction_summary\`
+• 💸 Monitor daily spending with \`/transactions_today\`
+
+*Quick Commands:*
+Tap any button below or type the command:
+        `;
+
+        const keyboard = {
+          inline_keyboard: [
+            [
+              { text: '➕ Add Task', callback_data: 'cmd_addtask' },
+              { text: '📅 Today\'s Tasks', callback_data: 'cmd_today' }
+            ],
+            [
+              { text: '📋 My Tasks', callback_data: 'cmd_mytasks' },
+              { text: '📋 My Routines', callback_data: 'cmd_myroutines' }
+            ],
+            [
+              { text: '📊 Status', callback_data: 'cmd_status' },
+              { text: '📋 Menu', callback_data: 'cmd_menu' }
+            ],
+            [
+              { text: '💰 Transactions', callback_data: 'cmd_transactions' },
+              { text: '📈 Add Income', callback_data: 'cmd_income' }
+            ],
+            [
+              { text: '📉 Add Expense', callback_data: 'cmd_expense' },
+              { text: '📊 Summary', callback_data: 'cmd_transaction_summary' }
+            ]
+          ]
+        };
+
+        await bot.sendMessage(chatId, welcomeMessage, {
+          parse_mode: 'Markdown',
+          reply_markup: keyboard
+        });
 
       } catch (error) {
         console.error('Error saving bot name:', error);

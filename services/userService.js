@@ -3,6 +3,8 @@ import {
   findUserByEmail as findUserByEmailModel,
   createUser as createUserModel
 } from '../models/userModel.js';
+import bcrypt from 'bcryptjs';
+import { v4 as uuidv4 } from 'uuid';
 
 /**
  * User Service - Business Logic Layer for User Management
@@ -446,6 +448,105 @@ class UserService {
       };
     } catch (error) {
       console.error('Error deleting user:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Auto register/login user from Telegram /start command
+   * @param {string} chatId - Telegram chat ID
+   * @param {string} telegramUsername - Telegram username
+   * @param {string} firstName - Telegram first name
+   * @param {string} lastName - Telegram last name
+   * @returns {Object} Auto register/login result
+   */
+  static async autoRegisterTelegramUser(chatId, telegramUsername, firstName, lastName) {
+    try {
+      const client = await pool.connect();
+
+      // Check if user already exists with this chatId
+      const existingConfig = await client.query(
+        'SELECT utc.*, u.name, u.email FROM user_telegram_config utc JOIN users u ON utc.user_id = u.id WHERE utc.telegram_chat_id = $1',
+        [chatId]
+      );
+
+      if (existingConfig.rows.length > 0) {
+        // User already exists, return existing user
+        client.release();
+        return {
+          success: true,
+          isNewUser: false,
+          user: existingConfig.rows[0]
+        };
+      }
+
+      // User doesn't exist, create new user
+      // Generate unique email
+      const uniqueEmail = `telegram_${chatId}@lifepath.telegram`;
+
+      // Generate random password hash
+      const randomPassword = uuidv4(); // Use UUID as random password
+      const passwordHash = await bcrypt.hash(randomPassword, 10);
+
+      // Determine user name - prioritize firstName, then username, then fallback
+      let userName = '';
+      if (firstName) {
+        userName = lastName ? `${firstName} ${lastName}` : firstName;
+      } else if (telegramUsername) {
+        userName = telegramUsername;
+      } else {
+        userName = `Telegram User ${chatId}`;
+      }
+
+      // Determine telegram_username to store (can be null)
+      const usernameToStore = telegramUsername || null;
+
+      // Create new user
+      const newUser = await client.query(
+        `INSERT INTO users (id, name, email, password_hash, role)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING id, name, email, role, created_at`,
+        [uuidv4(), userName, uniqueEmail, passwordHash, 'user']
+      );
+
+      if (newUser.rows.length === 0) {
+        client.release();
+        return {
+          success: false,
+          error: 'Failed to create user'
+        };
+      }
+
+      const user = newUser.rows[0];
+
+      // Create telegram config
+      const telegramConfig = await client.query(
+        `INSERT INTO user_telegram_config (user_id, telegram_chat_id, telegram_username, is_verified, is_active)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING *`,
+        [user.id, chatId, usernameToStore, true, true]
+      );
+
+      client.release();
+
+      return {
+        success: true,
+        isNewUser: true,
+        user: {
+          ...user,
+          telegram_chat_id: telegramConfig.rows[0].telegram_chat_id,
+          telegram_username: telegramConfig.rows[0].telegram_username,
+          is_verified: telegramConfig.rows[0].is_verified,
+          is_active: telegramConfig.rows[0].is_active,
+          bot_name: 'Levi'
+        }
+      };
+
+    } catch (error) {
+      console.error('Error in auto register telegram user:', error);
       return {
         success: false,
         error: error.message
