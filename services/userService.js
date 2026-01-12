@@ -22,7 +22,9 @@ class UserService {
       const client = await pool.connect();
 
       const result = await client.query(`
-        SELECT utc.*, u.name, u.email, COALESCE(utc.bot_name, 'Levi') as bot_name
+        SELECT utc.*, u.name, u.email, 
+               COALESCE(utc.bot_name, 'Levi') as bot_name,
+               COALESCE(utc.user_title, 'My Lord') as user_title
         FROM user_telegram_config utc
         JOIN users u ON utc.user_id = u.id
         WHERE utc.telegram_chat_id = $1 AND utc.is_verified = true
@@ -522,12 +524,12 @@ class UserService {
 
       const user = newUser.rows[0];
 
-      // Create telegram config
+      // Create telegram config with default user_title
       const telegramConfig = await client.query(
-        `INSERT INTO user_telegram_config (user_id, telegram_chat_id, telegram_username, is_verified, is_active)
-         VALUES ($1, $2, $3, $4, $5)
+        `INSERT INTO user_telegram_config (user_id, telegram_chat_id, telegram_username, is_verified, is_active, user_title)
+         VALUES ($1, $2, $3, $4, $5, $6)
          RETURNING *`,
-        [user.id, chatId, usernameToStore, true, true]
+        [user.id, chatId, usernameToStore, true, true, 'My Lord']
       );
 
       client.release();
@@ -541,7 +543,8 @@ class UserService {
           telegram_username: telegramConfig.rows[0].telegram_username,
           is_verified: telegramConfig.rows[0].is_verified,
           is_active: telegramConfig.rows[0].is_active,
-          bot_name: 'Levi'
+          bot_name: 'Levi',
+          user_title: 'My Lord'
         }
       };
 

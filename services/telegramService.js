@@ -3650,29 +3650,53 @@ I am honored to serve Your Majesty! 💪
         `, [botName, userState.userId]);
         client.release();
 
-        userStates.delete(chatId);
+        // Ask for user title preference
+        const askTitleMessage = `
+🎉 *Perfect!*
 
-        // Show welcome message after bot name is set
-        const welcomeMessage = `
-🎉 *Perfect, My Lord!*
+From now on, I shall be known as *${botName}*! 🤖
 
-From now on, you may call me *${botName}*! 🤖
+*One more thing...* 👑
 
-I am your humble personal assistant, ready to serve Your Majesty with tasks and routines.
+How would you like me to address you?
 
-*What You Can Do:*
-• ➕ Add tasks with \`/addtask\`
-• 📅 View today's tasks with \`/today\`
-• ⏰ Get automatic task reminders
-• 📊 Receive daily summaries
-• 🎯 Track your progress
-• 💰 Track finances with \`/income\` & \`/expense\`
-• 📈 View financial summaries with \`/transaction_summary\`
-• 💸 Monitor daily spending with \`/transactions_today\`
-
-*Quick Commands:*
-Tap any button below or type the command:
+Choose from the options below or type your own custom title:
         `;
+
+        const titleKeyboard = {
+          inline_keyboard: [
+            [
+              { text: '👑 Yang Mulia', callback_data: 'title_Yang Mulia' },
+              { text: '💼 Bos', callback_data: 'title_Bos' }
+            ],
+            [
+              { text: '🎩 Tuan', callback_data: 'title_Tuan' },
+              { text: '👨‍💼 Boss', callback_data: 'title_Boss' }
+            ],
+            [
+              { text: '🤴 Raja', callback_data: 'title_Raja' },
+              { text: '⚡ Master', callback_data: 'title_Master' }
+            ],
+            [
+              { text: '✍️ Custom (Type Your Own)', callback_data: 'title_custom' }
+            ]
+          ]
+        };
+
+        await bot.sendMessage(chatId, askTitleMessage, {
+          parse_mode: 'Markdown',
+          reply_markup: titleKeyboard
+        });
+
+        // Update state to awaiting title selection
+        userStates.set(chatId, {
+          action: 'awaiting_user_title',
+          userId: userState.userId,
+          botName: botName,
+          timestamp: Date.now()
+        });
+
+        return; // Don't show welcome message yet
 
         const keyboard = {
           inline_keyboard: [
@@ -3712,8 +3736,167 @@ Tap any button below or type the command:
         );
         userStates.delete(chatId);
       }
+    } else if (userState.action === 'awaiting_user_title') {
+      // Handle custom title input
+      console.log(`✅ Processing custom user title for ${chatId}`);
+      const customTitle = text.trim();
+
+      // Validate custom title
+      if (customTitle.length < 2 || customTitle.length > 30) {
+        await bot.sendMessage(chatId,
+          '❌ *Invalid Title*\n\n' +
+          'Title must be 2-30 characters long.\n' +
+          'Please try again.',
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+
+      // Save user title to database
+      try {
+        const client = await pool.connect();
+        await client.query(`
+          UPDATE user_telegram_config
+          SET user_title = $1, updated_at = CURRENT_TIMESTAMP
+          WHERE user_id = $2
+        `, [customTitle, userState.userId]);
+        client.release();
+
+        userStates.delete(chatId);
+
+        // Show final welcome message
+        await showWelcomeMessage(chatId, userState.botName, customTitle);
+
+      } catch (error) {
+        console.error('Error saving user title:', error);
+        await bot.sendMessage(chatId,
+          '❌ An error occurred while saving your title preference.',
+          { parse_mode: 'Markdown' }
+        );
+        userStates.delete(chatId);
+      }
     }
   });
+
+  // Handle callback queries for user title selection
+  bot.on('callback_query', async (callbackQuery) => {
+    const msg = callbackQuery.message;
+    const chatId = msg.chat.id;
+    const data = callbackQuery.data;
+
+    // Handle title selection
+    if (data.startsWith('title_')) {
+      const userState = userStates.get(chatId);
+      
+      if (!userState || userState.action !== 'awaiting_user_title') {
+        await bot.answerCallbackQuery(callbackQuery.id, {
+          text: 'Session expired. Please use /start again.'
+        });
+        return;
+      }
+
+      if (data === 'title_custom') {
+        // User wants to type custom title
+        await bot.editMessageText(
+          '✍️ *Custom Title*\n\n' +
+          'Please type your custom title (2-30 characters).\n\n' +
+          'Example: Kapten, Komandan, etc.',
+          {
+            chat_id: chatId,
+            message_id: msg.message_id,
+            parse_mode: 'Markdown'
+          }
+        );
+        await bot.answerCallbackQuery(callbackQuery.id);
+        return;
+      }
+
+      // Extract title from callback data
+      const selectedTitle = data.replace('title_', '');
+
+      // Save to database
+      try {
+        const client = await pool.connect();
+        await client.query(`
+          UPDATE user_telegram_config
+          SET user_title = $1, updated_at = CURRENT_TIMESTAMP
+          WHERE user_id = $2
+        `, [selectedTitle, userState.userId]);
+        client.release();
+
+        userStates.delete(chatId);
+
+        await bot.answerCallbackQuery(callbackQuery.id, {
+          text: `✅ Great! You will be addressed as "${selectedTitle}"`
+        });
+
+        // Delete the title selection message
+        await bot.deleteMessage(chatId, msg.message_id);
+
+        // Show final welcome message
+        await showWelcomeMessage(chatId, userState.botName, selectedTitle);
+
+      } catch (error) {
+        console.error('Error saving user title:', error);
+        await bot.answerCallbackQuery(callbackQuery.id, {
+          text: '❌ Error saving title. Please try again.'
+        });
+      }
+      return;
+    }
+
+    // ... existing callback query handlers ...
+  });
+
+  // Helper function to show welcome message with user's preferences
+  const showWelcomeMessage = async (chatId, botName, userTitle) => {
+    const welcomeMessage = `
+🎉 *Setup Complete, ${userTitle}!*
+
+From now on, you may call me *${botName}*! 🤖
+
+I am your humble personal assistant, ready to serve ${userTitle} with tasks and routines.
+
+*What You Can Do:*
+• ➕ Add tasks with \`/addtask\`
+• 📅 View today's tasks with \`/today\`
+• ⏰ Get automatic task reminders
+• 📊 Receive daily summaries
+• 🎯 Track your progress
+• 💰 Track finances with \`/income\` & \`/expense\`
+• 📈 View financial summaries with \`/transaction_summary\`
+• 💸 Monitor daily spending with \`/transactions_today\`
+
+*Quick Commands:*
+Tap any button below or type the command:
+    `;
+
+    const keyboard = {
+      inline_keyboard: [
+        [
+          { text: '➕ Add Task', callback_data: 'cmd_addtask' },
+          { text: '📅 Today\'s Tasks', callback_data: 'cmd_today' }
+        ],
+        [
+          { text: '📋 My Tasks', callback_data: 'cmd_mytasks' },
+          { text: '📋 My Routines', callback_data: 'cmd_myroutines' }
+        ],
+        [
+          { text: '💰 Transactions', callback_data: 'cmd_transactions' },
+          { text: '📈 Add Income', callback_data: 'cmd_income' }
+        ],
+        [
+          { text: '📉 Add Expense', callback_data: 'cmd_expense' },
+          { text: '📊 Summary', callback_data: 'cmd_transaction_summary' }
+        ]
+      ]
+    };
+
+    await bot.sendMessage(chatId, welcomeMessage, {
+      parse_mode: 'Markdown',
+      reply_markup: keyboard
+    });
+  };
 
   console.log('✅ Telegram Bot command handlers registered');
 };
