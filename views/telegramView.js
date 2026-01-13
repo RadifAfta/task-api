@@ -126,7 +126,7 @@ ${user.bot_name || 'Assistant'} has prepared ${routines.length} routine template
 
     if (tasks.length === 0) {
       return {
-        text: `📅 *Today's Tasks*\n\nMy Lord, ${user.bot_name || 'Assistant'} confirms you have no scheduled tasks for today!\n\n🎉 No tasks for today!\n\nUse /addtask to create a new task.`,
+        text: `📅 *Today's Tasks*\n\n${user.user_title || 'My Lord'}, ${user.bot_name || 'Assistant'} confirms you have no scheduled tasks for today!\n\n🎉 No tasks for today!\n\nUse /addtask to create a new task.`,
         options: {
           parse_mode: 'Markdown',
           reply_markup: {
@@ -217,7 +217,7 @@ ${user.bot_name || 'Assistant'} presents your daily task overview:
 
     if (tasks.length === 0) {
       return {
-        text: `📋 *My Tasks*\n\nMy Lord, ${user.bot_name || 'Assistant'} reports that your task list is currently empty!\n\n✨ No active tasks!\n\nTap button below to add your first task.`,
+        text: `📋 *My Tasks*\n\n${user.user_title || 'My Lord'}, ${user.bot_name || 'Assistant'} reports that your task list is currently empty!\n\n✨ No active tasks!\n\nTap button below to add your first task.`,
         options: {
           parse_mode: 'Markdown',
           reply_markup: {
@@ -230,7 +230,7 @@ ${user.bot_name || 'Assistant'} presents your daily task overview:
     }
 
     const intro = `📋 *My Active Tasks* (${tasks.length})\n\n` +
-      `My Lord, ${user.bot_name || 'Assistant'} presents your current task roster:\n\n` +
+      `${user.user_title || 'My Lord'}, ${user.bot_name || 'Assistant'} presents your current task roster:\n\n` +
       `Tap action buttons below each task:\n` +
       `✅ Complete | ✏️ Edit | 🗑️ Delete`;
 
@@ -252,10 +252,11 @@ ${user.bot_name || 'Assistant'} presents your daily task overview:
       };
     }
 
-    const { task } = result.data;
+    const { task, user } = result.data;
+    const userTitle = user?.user_title || 'My Lord';
 
     return {
-      text: `✅ *Task Completed!*\n\nMagnificent work, My Lord! You have conquered:\n~~${task.title}~~\n\nYour productivity reigns supreme! 🎉`,
+      text: `✅ *Task Completed!*\n\nMagnificent work, ${userTitle}! You have conquered:\n~~${task.title}~~\n\nYour productivity reigns supreme! 🎉`,
       options: { parse_mode: 'Markdown' }
     };
   }
@@ -272,15 +273,16 @@ ${user.bot_name || 'Assistant'} presents your daily task overview:
     }
 
     const { userConfig } = result.data;
+    const userTitle = userConfig.user_title || 'My Lord';
 
     const successMessage = `
 ✅ *Verification Successful!*
 
-Greetings, My Lord ${userConfig.name}! 🎉
+Greetings, ${userTitle} ${userConfig.name}! 🎉
 
 Your royal Telegram account is now linked to LifePath.
 
-*At Your Service, My Lord:*
+*At Your Service, ${userTitle}:*
 • Configure your reminder preferences in the app
 • I shall remind you before your tasks commence
 • Receive daily summaries of your royal duties
@@ -291,7 +293,7 @@ Your royal Telegram account is now linked to LifePath.
 • Use /help for more information
 • Manage settings in the LifePath app
 
-I am honored to serve Your Majesty! 💪
+I am honored to serve you, ${userTitle}! 💪
     `;
 
     return {
@@ -312,9 +314,10 @@ I am honored to serve Your Majesty! 💪
     }
 
     const { user } = result.data;
+    const userTitle = user.user_title || 'My Lord';
 
     return {
-      text: `✅ *Login Successful!*\n\nWelcome back, My Lord ${user.name}!\n\nYour royal Telegram account is now connected to LifePath. I am at your service!`,
+      text: `✅ *Login Successful!*\n\nWelcome back, ${userTitle} ${user.name}!\n\nYour royal Telegram account is now connected to LifePath. I am at your service!`,
       options: { parse_mode: 'Markdown' }
     };
   }
@@ -331,9 +334,10 @@ I am honored to serve Your Majesty! 💪
     }
 
     const { user } = result.data;
+    const userTitle = user.user_title || 'My Lord';
 
     return {
-      text: `🚪 *Logged Out Successfully*\n\nFarewell, My Lord ${user.name}!\n\nYour royal Telegram account has been disconnected from LifePath. May your journey be blessed!`,
+      text: `🚪 *Logged Out Successfully*\n\nFarewell, ${userTitle} ${user.name}!\n\nYour royal Telegram account has been disconnected from LifePath. May your journey be blessed!`,
       options: { parse_mode: 'Markdown' }
     };
   }
@@ -350,11 +354,12 @@ I am honored to serve Your Majesty! 💪
     }
 
     const { config } = result.data;
+    const userTitle = config.user_title || 'My Lord';
 
     const statusMessage = `
 ✅ *Connection Status*
 
-${config.bot_name || 'Assistant'} here with your account status report, My Lord:
+${config.bot_name || 'Assistant'} here with your account status report, ${userTitle}:
 
 *Account:* ${config.name}
 *Email:* ${config.email}
@@ -369,7 +374,7 @@ ${config.bot_name || 'Assistant'} here with your account status report, My Lord:
 
 *Quiet Hours:* ${config.quiet_hours_enabled ? `🌙 ${config.quiet_hours_start} - ${config.quiet_hours_end}` : '❌ Disabled'}
 
-Manage your settings in the LifePath app, My Lord! 📱
+Manage your settings in the LifePath app, ${userTitle}! 📱
     `;
 
     return {
@@ -393,7 +398,7 @@ Manage your settings in the LifePath app, My Lord! 📱
 
     if (transactions.length === 0) {
       return {
-        text: `💰 *${user.bot_name || 'Assistant'} Presents Your Financial Records*\n\n${user.bot_name || 'Assistant'} reports that you have no transaction records yet, My Lord.\n\nStart tracking your finances with /addtransaction or use quick commands!`,
+        text: `💰 *${user.bot_name || 'Assistant'} Presents Your Financial Records*\n\n${user.bot_name || 'Assistant'} reports that you have no transaction records yet, ${user.user_title || 'My Lord'}.\n\nStart tracking your finances with /income or /expense!`,
         options: {
           parse_mode: 'Markdown',
           reply_markup: {
@@ -401,9 +406,6 @@ Manage your settings in the LifePath app, My Lord! 📱
               [
                 { text: '📈 Add Income', callback_data: 'cmd_income' },
                 { text: '📉 Add Expense', callback_data: 'cmd_expense' }
-              ],
-              [
-                { text: '➕ Full Entry', callback_data: 'cmd_addtransaction' }
               ]
             ]
           }
@@ -477,7 +479,7 @@ Manage your settings in the LifePath app, My Lord! 📱
 
     if (transactions.length === 0) {
       return {
-        text: `📅 *${user.bot_name || 'Assistant'} Presents Today's Financial Records*\n\n${user.bot_name || 'Assistant'} reports that you have no transaction records for today, My Lord.\n\nStart tracking your finances with /addtransaction or use quick commands!`,
+        text: `📅 *${user.bot_name || 'Assistant'} Presents Today's Financial Records*\n\n${user.bot_name || 'Assistant'} reports that you have no transaction records for today, ${user.user_title || 'My Lord'}.\n\nStart tracking your finances with /income or /expense!`,
         options: {
           parse_mode: 'Markdown',
           reply_markup: {
@@ -485,9 +487,6 @@ Manage your settings in the LifePath app, My Lord! 📱
               [
                 { text: '📈 Add Income', callback_data: 'cmd_income' },
                 { text: '📉 Add Expense', callback_data: 'cmd_expense' }
-              ],
-              [
-                { text: '➕ Full Entry', callback_data: 'cmd_addtransaction' }
               ]
             ]
           }
@@ -621,9 +620,10 @@ Manage your settings in the LifePath app, My Lord! 📱
     const emoji = transaction.type === 'income' ? '📈' : '📉';
     const amountFormatted = new Intl.NumberFormat('id-ID').format(transaction.amount);
     const dateDisplay = new Date(transaction.transaction_date).toLocaleDateString('id-ID');
+    const userTitle = user?.user_title || 'My Lord';
 
     const successMessage = `
-✅ *Transaction Recorded, My Lord!*
+✅ *Transaction Recorded, ${userTitle}!*
 
 ${emoji} *${transaction.type.toUpperCase()}*
 💰 *Amount:* Rp ${amountFormatted}
@@ -633,7 +633,7 @@ ${emoji} *${transaction.type.toUpperCase()}*
 
 Your royal financial record has been saved successfully!
 
-Use /transactions to view all records, My Lord.
+Use /transactions to view all records, ${userTitle}.
     `;
 
     return {
