@@ -414,6 +414,7 @@ Manage your settings in the LifePath app, ${userTitle}! 📱
     }
 
     let message = `💰 *${user.bot_name || 'Assistant'} Presents Your Financial Records*\n\n`;
+    message += `${user.bot_name || 'Assistant'} has compiled your financial records, ${user.user_title || 'My Lord'}:\n\n`;
     message += `*Page ${page} of ${pagination.totalPages}* (${pagination.totalItems} total transactions)\n\n`;
 
     transactions.forEach((transaction, index) => {
@@ -495,7 +496,8 @@ Manage your settings in the LifePath app, ${userTitle}! 📱
     }
 
     let message = `📅 *${user.bot_name || 'Assistant'} Presents Today's Financial Records*\n\n`;
-    message += `*Page ${page} of ${pagination.totalPages}* (${pagination.totalItems} transactions today)\n\n`;
+    message += `${user.bot_name || 'Assistant'} has compiled ${pagination.totalItems} transaction${pagination.totalItems > 1 ? 's' : ''} for you today, ${user.user_title || 'My Lord'}:\n\n`;
+    message += `*Page ${page} of ${pagination.totalPages}*\n\n`;
 
     transactions.forEach((transaction, index) => {
       const emoji = transaction.type === 'income' ? '📈' : '📉';

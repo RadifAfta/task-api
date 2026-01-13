@@ -1803,6 +1803,19 @@ Use /today to see your remaining tasks.
 
     } catch (error) {
       console.error('Error in transactions command:', error);
+      
+      // Try to get user for personalized error message
+      try {
+        const verificationResult = await UserService.verifyUserByChatId(chatId);
+        if (verificationResult.success) {
+          const user = verificationResult.user;
+          await bot.sendMessage(chatId, `❌ ${user.bot_name || 'Assistant'} encountered an error fetching your transactions, ${user.user_title || 'My Lord'}. Please try again.`);
+          return;
+        }
+      } catch (err) {
+        // Ignore nested error
+      }
+      
       await bot.sendMessage(chatId, '❌ Error fetching transactions. Please try again.');
     }
   });
@@ -1851,6 +1864,19 @@ Use /today to see your remaining tasks.
 
     } catch (error) {
       console.error('Error in transactions_today command:', error);
+      
+      // Try to get user for personalized error message
+      try {
+        const verificationResult = await UserService.verifyUserByChatId(chatId);
+        if (verificationResult.success) {
+          const user = verificationResult.user;
+          await bot.sendMessage(chatId, `❌ ${user.bot_name || 'Assistant'} encountered an error fetching today's transactions, ${user.user_title || 'My Lord'}. Please try again.`);
+          return;
+        }
+      } catch (err) {
+        // Ignore nested error
+      }
+      
       await bot.sendMessage(chatId, '❌ Error fetching today\'s transactions. Please try again.');
     }
   });
@@ -1896,6 +1922,19 @@ Use /today to see your remaining tasks.
 
     } catch (error) {
       console.error('Error in transaction_summary command:', error);
+      
+      // Try to get user for personalized error message
+      try {
+        const verificationResult = await UserService.verifyUserByChatId(chatId);
+        if (verificationResult.success) {
+          const user = verificationResult.user;
+          await bot.sendMessage(chatId, `❌ ${user.bot_name || 'Assistant'} encountered an error fetching your financial summary, ${user.user_title || 'My Lord'}. Please try again.`);
+          return;
+        }
+      } catch (err) {
+        // Ignore nested error
+      }
+      
       await bot.sendMessage(chatId, '❌ Error fetching summary. Please try again.');
     }
   });
@@ -1926,12 +1965,12 @@ Use /today to see your remaining tasks.
       // Validate input
       if (!inputStr) {
         await bot.sendMessage(chatId,
-          '❌ *Amount Required*\n\n' +
-          'Please specify the income amount.\n\n' +
-          '*Examples:*\n' +
-          '`/income 50000`\n' +
-          '`/income gaji 50000`\n\n' +
-          'This will record Rp 50,000 as income.',
+          `❌ *Amount Required*\n\n` +
+          `${user.bot_name || 'Assistant'} needs to know the amount, ${user.user_title || 'My Lord'}.\n\n` +
+          `*Examples:*\n` +
+          `\`/income 50000\`\n` +
+          `\`/income gaji 50000\`\n\n` +
+          `This will record Rp 50,000 as income.`,
           { parse_mode: 'Markdown' }
         );
         return;
@@ -1945,12 +1984,12 @@ Use /today to see your remaining tasks.
       const amount = parseInt(amountStr.replace(/[^\d]/g, ''));
       if (isNaN(amount) || amount <= 0) {
         await bot.sendMessage(chatId,
-          '❌ *Invalid Amount*\n\n' +
-          'Please enter a valid positive number.\n\n' +
-          '*Examples:*\n' +
-          '`/income 50000`\n' +
-          '`/income gaji 50000`\n\n' +
-          'Use only numbers for the amount.',
+          `❌ *Invalid Amount*\n\n` +
+          `${user.bot_name || 'Assistant'} requires a valid positive number, ${user.user_title || 'My Lord'}.\n\n` +
+          `*Examples:*\n` +
+          `\`/income 50000\`\n` +
+          `\`/income gaji 50000\`\n\n` +
+          `Use only numbers for the amount.`,
           { parse_mode: 'Markdown' }
         );
         return;
@@ -1996,12 +2035,12 @@ Use /today to see your remaining tasks.
       // Validate input
       if (!inputStr) {
         await bot.sendMessage(chatId,
-          '❌ *Amount Required*\n\n' +
-          'Please specify the expense amount.\n\n' +
-          '*Examples:*\n' +
-          '`/expense 25000`\n' +
-          '`/expense bakso 25000`\n\n' +
-          'This will record Rp 25,000 as expense.',
+          `❌ *Amount Required*\n\n` +
+          `${user.bot_name || 'Assistant'} needs to know the amount, ${user.user_title || 'My Lord'}.\n\n` +
+          `*Examples:*\n` +
+          `\`/expense 25000\`\n` +
+          `\`/expense bakso 25000\`\n\n` +
+          `This will record Rp 25,000 as expense.`,
           { parse_mode: 'Markdown' }
         );
         return;
@@ -2015,12 +2054,12 @@ Use /today to see your remaining tasks.
       const amount = parseInt(amountStr.replace(/[^\d]/g, ''));
       if (isNaN(amount) || amount <= 0) {
         await bot.sendMessage(chatId,
-          '❌ *Invalid Amount*\n\n' +
-          'Please enter a valid positive number.\n\n' +
-          '*Examples:*\n' +
-          '`/expense 25000`\n' +
-          '`/expense bakso 25000`\n\n' +
-          'Use only numbers for the amount.',
+          `❌ *Invalid Amount*\n\n` +
+          `${user.bot_name || 'Assistant'} requires a valid positive number, ${user.user_title || 'My Lord'}.\n\n` +
+          `*Examples:*\n` +
+          `\`/expense 25000\`\n` +
+          `\`/expense bakso 25000\`\n\n` +
+          `Use only numbers for the amount.`,
           { parse_mode: 'Markdown' }
         );
         return;
